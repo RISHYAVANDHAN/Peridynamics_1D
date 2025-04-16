@@ -116,18 +116,28 @@ void calculate_rk(std::vector<Points>& point_list, double C1, double delta)
         i.V_eff = (i.n1 > 0) ? Vh / i.n1 : 0.0;
 
         for (size_t n = 0; n < i.neighbours.size(); n++) {
-            int j_idx = i.neighbours[n];
             double XiI = i.neighborsX[n] - i.X;
             double xiI = i.neighborsx[n] - i.x;
 
             double L = std::abs(XiI);
             double l = std::abs(xiI);
-            double s = (l - L) / l;
+            double s = (l - L) / L;
             double eta = (xiI / l);
 
             i.psi += 0.5 * C1 * L * s * s;
             i.R_a += C1 * eta * s * i.V_eff;
             i.K_ab[n] = C1 / L * i.V_eff;
+            // === Tangent stiffness
+            //   (1 / |ξ|^3) * ξ_i ⊗ ξ_i = 1 / |ξ| and I (identity tensor) = 1 in 1D, therefore the expression becomes
+            //   K_ab = ∂²ψ₁/∂x_i²
+            //   = C₁ * ( δªͥ - δªᵇ) [ (1/|ξ|) +  ((1/|Σ |) - (1/|ξ|)) ] * V_eff
+            //
+            // - First term: variation of 1/l term
+            // - Second term: from derivative of xi term in force
+            //
+            // This corresponds to: (while assembly)
+            //     K_aa = +Kval  when a == b  → (δₐᵦ = 1)
+            //     K_ab = -Kval  when a ≠ b  → (δₐᵦ = 0)
         }
     }
 }
