@@ -1,8 +1,6 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
-#include <ctime>
-#include <numeric>
 #include <iomanip>
 #include <Eigen/Dense>
 
@@ -30,18 +28,11 @@ public:
         : Nr(0), X(0.0), x(0.0), volume(0.0) {}
 };
 
-double norm(const std::vector<double>& vec) {
-    return std::sqrt(std::accumulate(vec.begin(), vec.end(), 0.0,
-                                     [](double acc, double val) {
-                                         return acc + val * val;
-                                     }));
-}
-
 std::vector<Points> mesh(double domain_size, int number_of_patches, double Delta, int number_of_right_patches, int& DOFs, int& DOCs, double d)
 {
     std::vector<Points> point_list;
     const int number_of_points = std::floor(domain_size / Delta) + 1;
-    const int extended_domain_size = number_of_patches + number_of_right_patches + number_of_points;
+    // const int extended_domain_size = number_of_patches + number_of_right_patches + number_of_points;
     int total_points = number_of_patches + number_of_right_patches + number_of_points;
     int index = 0;
     double FF = 1 + d;
@@ -91,12 +82,6 @@ void neighbour_list(std::vector<Points>& point_list, double& delta)
             }
         }
     }
-}
-
-double compute_psi(double C, double XiI, double xiI)
-{
-    double s = xiI/ XiI;
-    return 0.5 * C * XiI * std::pow((s - 1), 2);
 }
 
 void calculate_rk(std::vector<Points>& point_list, double C1, double delta)
@@ -150,6 +135,9 @@ void calculate_rk(std::vector<Points>& point_list, double C1, double delta)
         }
     }
 }
+
+
+
 
 // Combined assembly function that can handle both residual and stiffness
 void assembly(const std::vector<Points>& point_list, int DOFs, Eigen::VectorXd& R, Eigen::MatrixXd& K, const std::string& flag) {
@@ -206,31 +194,23 @@ void assembly(const std::vector<Points>& point_list, int DOFs, Eigen::VectorXd& 
     }
 }
 
-std::vector<Points> update(std::vector<Points>& point_list, double arg, const std::string& Update_flag)
+void update_points(std::vector<Points>& point_list, double LF, Eigen::VectorXd& dx, const std::string& Update_flag)
 {
-    if (Update_flag == "Prescribed")
-    {
-        double LF = arg;
-        for (auto& i : point_list)
-        {
-            if(i.BCflag == 0)
-            {
+    if (Update_flag == "Prescribed") {
+        for (auto& i : point_list) {
+            if (i.BCflag == 0) {
                 i.x = i.X + (LF * i.BCval);
             }
         }
-    }
-    else if (Update_flag == "Displacement")
-    {
-        for (auto& i : point_list)
-        {
-            if(i.BCflag == 1 && i.DOF > 0)
-            {
-                i.x = i.x + arg;
+    } else if (Update_flag == "Displacement") {
+        for (auto& i : point_list) {
+            if (i.BCflag == 1 && i.DOF > 0) {
+                i.x = i.x + dx(i.DOF - 1); // Apply the displacement
             }
         }
     }
-    return point_list;
 }
+
 
 int main()
 {
@@ -271,12 +251,12 @@ int main()
     // ==== NEWTON RAPHSON STARTS =========//
 
     int steps = 1;
-    double load_step = d/steps;
+    double load_step = 1 / steps;
     double tol = 1e-11;
     int counter = 0;
-    int min_try = 0;
     int max_try = 20;
-    double LF = 0.0;
+    int min_try = 0;
+    double LF = 0.0; // Load factor, will increment during simulation
 
     std::cout << "======================================================" << std::endl;
     std::cout << "Simulation Parameters:" << std::endl;
@@ -290,79 +270,63 @@ int main()
     Eigen::MatrixXd K = Eigen::MatrixXd::Zero(DOFs, DOFs);
     Eigen::VectorXd dx = Eigen::VectorXd::Zero(DOFs);
 
-    while (LF <= 1.0 + 1e-8)
-    {
+    // Loop over each load increment
+    while (LF <= 1.0 + 1e-8) {
         std::cout << "Load Factor: " << LF << std::endl;
-        std::string update_flag = "Prescribed";
-        std::vector<Points> point_list = update(points, LF, update_flag);
+
+        // Prescribed displacement update at the start of each load step
+        update_points(points, LF, dx, "Prescribed");
 
         int error_counter = 1;
         bool isNotAccurate = true;
         double normnull = 0.0;
 
-        while(isNotAccurate && error_counter <= max_try)
-        {
+        // Newton-Raphson inner loop
+        while (isNotAccurate && error_counter <= max_try) {
             // Calculate residuals and stiffness
-            calculate_rk(point_list, C1, delta);
+            calculate_rk(points, C1, delta);
 
             // Assembly residual vector
-            assembly(point_list, DOFs, R, K, "residual");
+            assembly(points, DOFs, R, K, "residual");
 
             // Get residual norm
             double residual_norm = R.norm();
 
             // First iteration: store initial residual norm
-            if(error_counter == 1)
-            {
+            if (error_counter == 1) {
                 normnull = residual_norm;
-                std::cout << "Residual Norm @ Increment " << counter
-                          << " @ Iteration " << error_counter
+                std::cout << "Residual Norm @ Iteration " << error_counter
                           << " : " << std::scientific << std::setprecision(2)
                           << residual_norm << "    ,    normalized : 1" << std::endl;
-            }
-            else
-            {
-                std::cout << "Residual Norm @ Increment " << counter
-                          << " @ Iteration " << error_counter
+            } else {
+                std::cout << "Residual Norm @ Iteration " << error_counter
                           << " : " << std::scientific << std::setprecision(2)
                           << residual_norm << "    ,    normalized : "
                           << (residual_norm / normnull) << std::endl;
 
-                // Check convergence
-                if ((residual_norm / normnull) < tol || residual_norm < tol)
-                {
+                // Check for convergence
+                if ((residual_norm / normnull) < tol || residual_norm < tol) {
                     isNotAccurate = false;
                     std::cout << "Converged after " << error_counter << " iterations." << std::endl;
                 }
             }
 
-            if (isNotAccurate)
-            {
-                // Assembly stiffness matrix
-                assembly(point_list, DOFs, R, K, "stiffness");
+            // Assembly stiffness matrix
+            assembly(points, DOFs, R, K, "stiffness");
 
-                // Solve system K*dx = -R using Eigen
-                dx = K.colPivHouseholderQr().solve(-R);
+            // Solve system K*dx = -R using Eigen
+            Eigen::FullPivLU<Eigen::MatrixXd> solver(K);
+            dx = solver.solve(-R);
+            Eigen::MatrixXd KKtmp;
+            KKtmp = K - K.transpose();
+            // Update the points after solving the system
+            update_points(points, LF, dx, "Displacement");
 
-                // Update point positions
-                std::string displ_flag = "Displacement";
-                for (int i = 0; i < DOFs; i++)
-                {
-                    for (auto& p : point_list)
-                    {
-                        if (p.DOF == i + 1)  // Match DOF index (1-based)
-                        {
-                            p.x += dx(i);
-                        }
-                    }
-                }
-
-                error_counter++;
-            }
+            error_counter++;
         }
 
         // Save the updated points for next load step
-        points = point_list;
+        // points = point_list; // point_list has been updated in place
 
         // Increment load factor
         LF += load_step;
@@ -370,10 +334,8 @@ int main()
 
         // Output current state
         std::cout << "Current positions:" << std::endl;
-        for (const auto& p : points)
-        {
-            if (p.Flag == "Point")
-            {
+        for (const auto& p : points) {
+            if (p.Flag == "Point") {
                 std::cout << "Point " << p.Nr << ": x = " << p.x
                           << ", displacement = " << (p.x - p.X) << std::endl;
             }
