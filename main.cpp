@@ -131,6 +131,7 @@ void calculate_rk(std::vector<Points>& point_list, double C1, double delta)
             //   (1 / |ξ|^3) * ξ_i ⊗ ξ_i = 1 / |ξ| and I (identity tensor) = 1 in 1D, therefore the expression becomes
             //   K_ab = ∂²ψ₁/∂x_i²
             //   = C₁ * ( δªͥ - δªᵇ) [ (1/|ξ|) +  ((1/|Σ |) - (1/|ξ|)) ] * V_eff
+            //   = C1 * (1/|Σ |) * V_eff, as (1/|ξ|) terms gets cancelled.
             //
             // - First term: variation of 1/l term
             // - Second term: from derivative of xi term in force
