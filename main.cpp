@@ -110,10 +110,7 @@ void calculate_rk(std::vector<Points>& point_list, double C1, double delta)
 
     for (auto& i : point_list)
     {
-        i.psi = 0.0;
-        i.R_a = 0.0;
-        i.K_ab.clear();
-        i.V_eff = (i.n1 > 0) ? Vh / i.n1 : 0.0;
+        i.V_eff = Vh / i.n1;
 
         for (size_t n = 0; n < i.neighbours.size(); n++) {
             double XiI = i.neighborsX[n] - i.X;
@@ -121,7 +118,7 @@ void calculate_rk(std::vector<Points>& point_list, double C1, double delta)
 
             double L = std::abs(XiI);
             double l = std::abs(xiI);
-            double s = (l - L) / L;
+            double s = (l - L) / l;
             double eta = (xiI / l);
 
             i.psi += 0.5 * C1 * L * s * s;
@@ -146,7 +143,6 @@ void calculate_rk(std::vector<Points>& point_list, double C1, double delta)
 void assembly(const std::vector<Points>& point_list, int DOFs, Eigen::VectorXd& R, Eigen::MatrixXd& K, const std::string& flag)
 {
     if (flag == "residual") {
-        R.setZero();
         for (const auto& point : point_list) {
             if (point.BCflag == 1 && point.DOF > 0 && point.DOF <= DOFs) {
                 R(point.DOF - 1) += point.R_a;
@@ -157,8 +153,6 @@ void assembly(const std::vector<Points>& point_list, int DOFs, Eigen::VectorXd& 
         std::cout << "\nResidual Vector R:\n" << R << std::endl;
     }
     else if (flag == "stiffness") {
-        K.setZero();
-
         for (const auto& point : point_list) {
             if (point.BCflag == 1 && point.DOF > 0 && point.DOF <= DOFs) {
                 int row = point.DOF - 1;
@@ -167,12 +161,8 @@ void assembly(const std::vector<Points>& point_list, int DOFs, Eigen::VectorXd& 
                 for (size_t n = 0; n < point.neighbours.size(); ++n) {
                     int nbr_idx = point.neighbours[n];
                     const Points& neighbor = point_list[nbr_idx];
-
                     if (neighbor.BCflag == 1 && neighbor.DOF > 0 && neighbor.DOF <= DOFs) {
-                        int col = neighbor.DOF - 1;
                         double k = point.K_ab[n];
-
-                        K(row, col) -= k;
                         diag += k;
                     }
                 }
@@ -220,10 +210,10 @@ int main()
     double domain_size = 1.0;
     double delta = 0.301;
     double Delta = 0.1;
-    double d = 0.0001;
+    double d = 1.0e-4;
     int number_of_patches = 3;
     int number_of_right_patches = 1;
-    double C1 = 0.05;
+    double C1 = 0.5;
     int DOFs = 0;
     int DOCs = 0;
 
