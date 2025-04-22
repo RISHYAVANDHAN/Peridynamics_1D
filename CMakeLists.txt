@@ -8,7 +8,9 @@ find_package(Eigen3 CONFIG REQUIRED)
 
 # Define the executable target and source files
 add_executable(Peridynamics_1D
-        main.cpp)
+        main.cpp
+        Points.h
+        Points.cpp)
 
 # Link the Eigen3 library to your target
 target_link_libraries(Peridynamics_1D PRIVATE Eigen3::Eigen)

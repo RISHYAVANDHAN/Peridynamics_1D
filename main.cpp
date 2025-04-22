@@ -4,7 +4,10 @@
 #include <iomanip>
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
+#include <string>
+#include <algorithm> // for std::max
 
+// --- Points Class Declaration ---
 class Points
 {
 public:
@@ -22,186 +25,31 @@ public:
     int n1 = 0;                     // Number of 1-neighbor interactions
     double volume;                  // Volume
     double psi{};                   // Energy
-    double R_a{};                   // Residual
-    std::vector<double> K_ab{};     // Tangential stiffness per neighbor
+    double residual{};              // Residual
+    std::vector<double> stiffness{};// Tangential stiffness per neighbor
     double V_eff{};                 // Effective volume
 
     Points() : Nr(0), X(0.0), x(0.0), volume(0.0) {}
 };
 
+// --- Mesh Function ---
 std::vector<Points> mesh(double domain_size, int number_of_patches, double Delta,
-                        int number_of_right_patches, int& DOFs, int& DOCs, double d)
-{
-    std::vector<Points> point_list;
-    const int number_of_points = std::floor(domain_size / Delta) + 1;
-    int total_points = number_of_patches + number_of_right_patches + number_of_points;
-    int index = 0;
-    double FF = 1 + d;
+                        int number_of_right_patches, int& DOFs, int& DOCs, double d);
 
-    for (int i = 0; i < total_points; i++) {
-        Points point;
-        point.Nr = index++;
-        point.X = Delta / 2 + i * Delta;
-        point.x = point.X;
-        point.neighborsx.clear();
-        point.neighborsX.clear();
+// --- Neighbor List Function ---
+void neighbour_list(std::vector<Points>& point_list, double& delta);
 
-        if (i < number_of_patches) {
-            point.Flag = "Patch";
-            point.BCval = 0;
-            point.BCflag = 0;
-            point.DOC = ++DOCs;
-        }
-        else if (i >= number_of_patches + number_of_points) {
-            point.Flag = "RightPatch";
-            point.BCval = d;  // Modified: Just apply d as displacement
-            point.BCflag = 0;
-            point.DOC = ++DOCs;
-        }
-        else {
-            point.Flag = "Point";
-            point.BCflag = 1;
-            point.BCval = (FF * point.X) - point.X;
-            point.DOF = ++DOFs;
-        }
+// --- Tangent Stiffness Calculation ---
+void calculate_rk(std::vector<Points>& point_list, double C1, double delta);
 
-        point.volume = 1;
-        point_list.push_back(point);
-    }
+// --- Residual and Stiffness Assembly ---
+void assembly(const std::vector<Points>& point_list, int DOFs, Eigen::VectorXd& R, Eigen::SparseMatrix<double>& K, const std::string& flag);
 
-    // Recalculate DOFs and assign correct indices
-    DOFs = 0;
-    for (auto& point : point_list) {
-        if (point.BCflag == 1) {
-            point.DOF = ++DOFs;
-        }
-    }
-
-    return point_list;
-}
-
-void neighbour_list(std::vector<Points>& point_list, double& delta)
-{
-    for (auto &i : point_list) {
-        i.neighbours.clear();
-        i.neighborsx.clear();
-        i.neighborsX.clear();
-        i.n1 = 0;
-
-        for (auto &j : point_list) {
-            if ((i.Nr != j.Nr) && (std::abs(i.X - j.X) < delta))
-            {
-                i.neighbours.push_back(j.Nr);
-                i.neighborsx.push_back(j.x);
-                i.neighborsX.push_back(j.X);
-                i.n1++;
-            }
-        }
-
-        // Initialize K_ab vector to match number of neighbors
-        i.K_ab.resize(i.n1, 0.0);
-    }
-}
-
-void calculate_rk(std::vector<Points>& point_list, double C1, double delta)
-{
-    constexpr double pi = 3.14159265358979323846;
-    double Vh = (4.0 / 3.0) * pi * std::pow(delta, 3);
-
-    for (auto& i : point_list)
-    {
-        i.V_eff = Vh / i.n1;
-
-        for (size_t n = 0; n < i.neighbours.size(); n++) {
-            double XiI = i.neighborsX[n] - i.X;
-            double xiI = i.neighborsx[n] - i.x;
-
-            double L = std::abs(XiI);
-            double l = std::abs(xiI);
-            double s = (l - L) / l;
-            double eta = (xiI / l);
-
-            i.psi += 0.5 * C1 * L * s * s;
-            i.R_a += C1 * eta * s * i.V_eff;
-            i.K_ab[n] = C1 / L * i.V_eff;
-            // === Tangent stiffness
-            //   (1 / |ξ|^3) * ξ_i ⊗ ξ_i = 1 / |ξ| and I (identity tensor) = 1 in 1D, therefore the expression becomes
-            //   K_ab = ∂²ψ₁/∂x_i²
-            //   = C₁ * ( δªͥ - δªᵇ) [ (1/|ξ|) +  ((1/|Σ |) - (1/|ξ|)) ] * V_eff
-            //   = C1 * (1/|Σ |) * V_eff, as (1/|ξ|) terms gets cancelled.
-            //
-            // - First term: variation of 1/l term
-            // - Second term: from derivative of xi term in force
-            //
-            // This corresponds to: (while assembly)
-            //     K_aa = +Kval  when a == b  → (δₐᵦ = 1)
-            //     K_ab = -Kval  when a ≠ b  → (δₐᵦ = 0)
-        }
-    }
-}
-
-void assembly(const std::vector<Points>& point_list, int DOFs, Eigen::VectorXd& R, Eigen::MatrixXd& K, const std::string& flag)
-{
-    if (flag == "residual") {
-        for (const auto& point : point_list) {
-            if (point.BCflag == 1 && point.DOF > 0 && point.DOF <= DOFs) {
-                R(point.DOF - 1) += point.R_a;
-            }
-        }
-        // Print residual vector
-        std::cout << "size of the residual vector is: "<< R.size() << "\n";
-        std::cout << "\nResidual Vector R:\n" << R << std::endl;
-    }
-    else if (flag == "stiffness") {
-        for (const auto& point : point_list) {
-            if (point.BCflag == 1 && point.DOF > 0 && point.DOF <= DOFs) {
-                int row = point.DOF - 1;
-                double diag = 0.0;
-
-                for (size_t n = 0; n < point.neighbours.size(); ++n) {
-                    int nbr_idx = point.neighbours[n];
-                    const Points& neighbor = point_list[nbr_idx];
-                    if (neighbor.BCflag == 1 && neighbor.DOF > 0 && neighbor.DOF <= DOFs) {
-                        double k = point.K_ab[n];
-                        diag += k;
-                    }
-                }
-
-                K(row, row) += diag;
-            }
-        }
-        std::cout << "\nStiffness matrix size: " << K.rows() << " x " << K.cols() << std::endl;
-        std::cout << "\nStiffness Matrix K:\n" << K << std::endl;
-    }
-}
-
+// --- Update Points Function ---
 void update_points(std::vector<Points>& point_list, double LF,
-                  Eigen::VectorXd& dx, const std::string& Update_flag)
-{
-    if (Update_flag == "Prescribed") {
-        for (auto& i : point_list) {
-            if (i.BCflag == 0) {
-                i.x = i.X + (LF * i.BCval);
-            }
-        }
-    }
-    else if (Update_flag == "Displacement") {
-        for (auto& i : point_list) {
-            if (i.BCflag == 1 && i.DOF > 0) {
-                i.x += dx(i.DOF - 1);
-            }
-        }
-    }
+                  Eigen::VectorXd& dx, const std::string& Update_flag);
 
-    // Update neighbor coordinates by directly accessing updated coordinates
-    for (auto& point : point_list) {
-        for (size_t n = 0; n < point.neighbours.size(); n++) {
-            int nbr_idx = point.neighbours[n];
-            point.neighborsx[n] = point_list[nbr_idx].x;
-        }
-    }
-}
-
+// --- Main Function ---
 int main()
 {
     std::cout << "Starting 1D Peridynamics simulation!" << std::endl;
@@ -210,10 +58,10 @@ int main()
     double domain_size = 1.0;
     double delta = 0.301;
     double Delta = 0.1;
-    double d = 1.0e-4;
+    double d = 1.0;
     int number_of_patches = 3;
     int number_of_right_patches = 1;
-    double C1 = 0.5;
+    double C1 = 1.0;
     int DOFs = 0;
     int DOCs = 0;
 
@@ -242,7 +90,7 @@ int main()
     }
 
     // Newton-Raphson setup
-    int steps = 1;
+    int steps = 10;
     double load_step = (1.0 / steps);
     double tol = 1e-6;
     int max_try = 30;
@@ -250,7 +98,7 @@ int main()
 
     // Initialize Eigen objects
     Eigen::VectorXd R = Eigen::VectorXd::Zero(DOFs);
-    Eigen::MatrixXd K = Eigen::MatrixXd::Zero(DOFs, DOFs);
+    Eigen::SparseMatrix<double> K ;
     Eigen::VectorXd dx = Eigen::VectorXd::Zero(DOFs);
 
     // Load stepping loop
@@ -295,7 +143,7 @@ int main()
 
             // Improved linear solver with safety checks
             Eigen::FullPivLU<Eigen::MatrixXd> solver(K);
-            dx = solver.solve(-R);
+            dx += solver.solve(-R);
 
             // Update displacements
             update_points(points, LF, dx, "Displacement");
@@ -307,10 +155,7 @@ int main()
 
         // Output current state
         for (const auto& p : points) {
-            if (p.Flag == "Point") {
-                std::cout << "Point " << p.Nr << ": x = " << p.x
-                          << ", displacement = " << (p.x - p.X) << std::endl;
-            }
+            std::cout << "Point " << p.Nr << ": x = " << p.x << ", displacement = " << (p.x - p.X) << std::endl;
         }
     }
 
