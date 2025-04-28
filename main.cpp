@@ -2,56 +2,53 @@
 #include <vector>
 #include <cmath>
 #include <iomanip>
+#include <fstream>
+#include <filesystem>
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
 #include <string>
-#include <algorithm> // for std::max
+#include <algorithm>
+#include "Points.h"
 
-// --- Points Class Declaration ---
-class Points
-{
-public:
-    int Nr;                         // Point index
-    double X;                       // Reference coordinates
-    double x;                       // Current coordinates
-    std::vector<int> neighbours;    // Neighbor list
-    std::vector<double> neighborsx; // Current coordinates of neighbors
-    std::vector<double> neighborsX; // Reference coordinates of neighbors
-    std::string Flag;               // Patch/Point/Right Patch flag
-    int BCflag{};                   // 0: Dirichlet; 1: Neumann
-    double BCval{};                 // Boundary condition value
-    int DOF{};                      // Global degree of freedom
-    int DOC{};                      // Constraint flag
-    int n1 = 0;                     // Number of 1-neighbor interactions
-    double volume;                  // Volume
-    double psi{};                   // Energy
-    double residual{};              // Residual
-    std::vector<double> stiffness{};// Tangential stiffness per neighbor
-    double V_eff{};                 // Effective volume
 
-    Points() : Nr(0), X(0.0), x(0.0), volume(0.0) {}
-};
+void write_vtk_1d(const std::vector<Points>& point_list, const std::string& filename) {
+    std::ofstream vtk_file(filename);
+    if (!vtk_file.is_open()) {
+        std::cerr << "Failed to open VTK file for writing: " << filename << std::endl;
+        return;
+    }
 
-// --- Mesh Function ---
-std::vector<Points> mesh(double domain_size, int number_of_patches, double Delta,
-                        int number_of_right_patches, int& DOFs, int& DOCs, double d);
+    vtk_file << "# vtk DataFile Version 4.2\n";
+    vtk_file << "1D Peridynamics Output\n";
+    vtk_file << "ASCII\n";
+    vtk_file << "DATASET POLYDATA\n";
+    vtk_file << "POINTS " << point_list.size() << " float\n";
 
-// --- Neighbor List Function ---
-void neighbour_list(std::vector<Points>& point_list, double& delta);
+    for (const auto& point : point_list) {
+        vtk_file << std::fixed << std::setprecision(6);
+        vtk_file << point.x << " 0.0 0.0\n";
+    }
 
-// --- Tangent Stiffness Calculation ---
-void calculate_rk(std::vector<Points>& point_list, double C1, double delta);
+    // Add lines connecting adjacent points to emphasize horizontal layout
+    vtk_file << "LINES " << (point_list.size()-1) << " " << (point_list.size()-1)*3 << "\n";
+    for (size_t i = 0; i < point_list.size()-1; i++) {
+        vtk_file << "2 " << i << " " << (i+1) << "\n";
+    }
 
-// --- Residual and Stiffness Assembly ---
-void assembly(const std::vector<Points>& point_list, int DOFs, Eigen::VectorXd& R, Eigen::SparseMatrix<double>& K, const std::string& flag);
+    vtk_file << "POINT_DATA " << point_list.size() << "\n";
 
-// --- Update Points Function ---
-void update_points(std::vector<Points>& point_list, double LF,
-                  Eigen::VectorXd& dx, const std::string& Update_flag);
+    vtk_file << "SCALARS BC int 1\n";
+    vtk_file << "LOOKUP_TABLE default\n";
+    for (const auto& point : point_list) {
+        vtk_file << point.BCflag << "\n";
+    }
+
+    vtk_file.close();
+    std::cout << "VTK file written to " << filename << std::endl;
+}
 
 // --- Main Function ---
-int main()
-{
+int main() {
     std::cout << "Starting 1D Peridynamics simulation!" << std::endl;
 
     // Parameters
@@ -61,7 +58,7 @@ int main()
     double d = 1.0;
     int number_of_patches = 3;
     int number_of_right_patches = 1;
-    double C1 = 1.0;
+    double C1 = 0.5;
     int DOFs = 0;
     int DOCs = 0;
 
@@ -89,16 +86,26 @@ int main()
         std::cout << std::endl;
     }
 
+    // Write initial mesh to VTK
+    write_vtk_1d(points, "C:/Users/srini/Downloads/FAU/Semwise Course/Programming Project/peridynamics 1D vtk/initial.vtk");
+
     // Newton-Raphson setup
-    int steps = 10;
+    int steps = 100;
     double load_step = (1.0 / steps);
     double tol = 1e-6;
     int max_try = 30;
     double LF = 0.0;
 
+    std::cout << "======================================================" << std::endl;
+    std::cout << "Simulation Parameters:" << std::endl;
+    std::cout << "Domain Size: " << domain_size << " | Delta: " << Delta<< " | Horizon: " << delta << std::endl;
+    std::cout << "Steps: " << steps << " | Load Step: " << load_step<< " | Tolerance: " << tol << std::endl;
+    std::cout << "Material constant C1: " << C1 << std::endl;
+    std::cout << "======================================================" << std::endl;
+
     // Initialize Eigen objects
     Eigen::VectorXd R = Eigen::VectorXd::Zero(DOFs);
-    Eigen::SparseMatrix<double> K ;
+    Eigen::SparseMatrix<double> K;
     Eigen::VectorXd dx = Eigen::VectorXd::Zero(DOFs);
 
     // Load stepping loop
@@ -112,20 +119,17 @@ int main()
         bool isNotAccurate = true;
         double normnull = 0.0;
 
-        // Reset dx to zero for new iteration
         dx.setZero();
 
         // Newton-Raphson iteration
         while (isNotAccurate && error_counter <= max_try) {
-            // Calculate residuals and stiffness
             calculate_rk(points, C1, delta);
 
-            // Assemble residual
             assembly(points, DOFs, R, K, "residual");
 
             double residual_norm = R.norm();
             if (error_counter == 1) {
-                normnull = std::max(residual_norm, 1e-10);  // Prevent division by zero
+                normnull = std::max(residual_norm, 1e-10);
                 std::cout << "Initial Residual Norm: " << residual_norm << std::endl;
             } else {
                 double rel_norm = residual_norm / normnull;
@@ -138,18 +142,17 @@ int main()
                 }
             }
 
-            // Assemble stiffness and solve
             assembly(points, DOFs, R, K, "stiffness");
 
-            // Improved linear solver with safety checks
             Eigen::FullPivLU<Eigen::MatrixXd> solver(K);
             dx += solver.solve(-R);
 
-            // Update displacements
             update_points(points, LF, dx, "Displacement");
             error_counter++;
-
         }
+        std::ostringstream load_filename;
+        load_filename << "C:/Users/srini/Downloads/FAU/Semwise Course/Programming Project/peridynamics 1D vtk/load_" << std::fixed << std::setprecision(2) << LF << ".vtk";
+        write_vtk_1d(points, load_filename.str());
 
         LF += load_step;
 
@@ -159,6 +162,7 @@ int main()
         }
     }
 
-    std::cout << "Simulation completed successfully!" << std::endl;
+    write_vtk_1d(points, "C:/Users/srini/Downloads/FAU/Semwise Course/Programming Project/peridynamics 1D vtk/final.vtk");
+
     return 0;
 }

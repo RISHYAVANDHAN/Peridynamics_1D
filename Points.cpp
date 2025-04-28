@@ -100,7 +100,6 @@ void calculate_rk(std::vector<Points>& point_list, double C1, double delta)
 {
     constexpr double pi = 3.14159265358979323846;
     double Vh = (4.0 / 3.0) * pi * std::pow(delta, 3);
-    const int PD = 1; // 1D problem
 
     for (auto& i : point_list)
     {
@@ -120,23 +119,22 @@ void calculate_rk(std::vector<Points>& point_list, double C1, double delta)
         neighborsEx.push_back(i.x);
         neighborsEX.push_back(i.X);
 
-        const int NNgbrE = i.n1 + 1; // Extended neighbor count
+        const int NNgbrE = neighborsE.size(); // Extended neighbor count
 
         // Resize stiffness to accommodate all neighbors including self
         i.stiffness.clear();
         i.stiffness.resize(NNgbrE, 0.0);
 
-        // Calculate stiffness using AA1 function (similar to MATLAB)
         for (size_t j = 0; j < i.n1; j++) {
             double XiI = i.neighborsX[j] - i.X;
             double xiI = i.neighborsx[j] - i.x;
 
-            double L = std::abs(XiI);  // In 1D, norm is absolute value
+            double L = std::abs(XiI);
             double l = std::abs(xiI);
 
             if (L > 0.0) {  // Avoid division by zero
                 double s = (l - L) / L;
-                double eta = (xiI / l);  // Unit direction in 1D
+                double eta = (xiI / l);
 
                 // Calculate energy and residual
                 i.psi += 0.5 * C1 * L * s * s;
@@ -177,12 +175,12 @@ void assembly(const std::vector<Points>& point_list, int DOFs, Eigen::VectorXd& 
             int DOF = point.DOF;
             if (BCflg == 1) {
                 R(DOF - 1) += R_P; // Adjust for 1-based indexing
-                std::cout << "[Residual] Added residual " << R_P << " at DOF " << DOF << " (Global Point ID: " << point.Nr << ")\n";
+                //std::cout << "[Residual] Added residual " << R_P << " at DOF " << DOF << " (Global Point ID: " << point.Nr << ")\n";
             }
         }
 
-        std::cout << "Size of the residual vector is: " << R.size() << "\n";
-        std::cout << "\nResidual Vector R:\n" << R << std::endl;
+        //std::cout << "Size of the residual vector is: " << R.size() << "\n";
+        //std::cout << "\nResidual Vector R:\n" << R << std::endl;
     }
     else if (flag == "stiffness") {
         // Reset stiffness matrix
@@ -207,8 +205,7 @@ void assembly(const std::vector<Points>& point_list, int DOFs, Eigen::VectorXd& 
                     if (BCflg_q == 1) {
                         double Kval = point.stiffness[q];
                         triplets.emplace_back(DOF_p - 1, DOF_q - 1, Kval);
-                        std::cout << "[Stiffness] K(" << DOF_p << "," << DOF_q << ") = " << Kval
-                                  << " from Point " << point.Nr << " to Point " << nbr_idx << "\n";
+                        //std::cout << "[Stiffness] K(" << DOF_p << "," << DOF_q << ") = " << Kval << " from Point " << point.Nr << " to Point " << nbr_idx << "\n";
                     }
                 }
             }
@@ -219,8 +216,8 @@ void assembly(const std::vector<Points>& point_list, int DOFs, Eigen::VectorXd& 
 
         Eigen::MatrixXd A = Eigen::MatrixXd(K);
 
-        std::cout << "\nStiffness matrix size: " << A.rows() << " x " << K.cols() << std::endl;
-        std::cout << "\nStiffness Matrix K:\n" << A << std::endl;
+        //std::cout << "\nStiffness matrix size: " << A.rows() << " x " << K.cols() << std::endl;
+        //std::cout << "\nStiffness Matrix K:\n" << A << std::endl;
     }
 }
 
