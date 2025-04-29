@@ -3,15 +3,8 @@ project(Peridynamics_1D)
 
 set(CMAKE_CXX_STANDARD 17)
 
-include(FetchContent)
-
-FetchContent_Declare(
-  eigen
-  GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
-  GIT_TAG 3.4.0  # Use the desired Eigen version
-)
-
-FetchContent_MakeAvailable(eigen)
+# Add subdirectory for Eigen as it has been added as a submodule
+add_subdirectory(extern/eigen)
 
 add_executable(Peridynamics_1D
     main.cpp
