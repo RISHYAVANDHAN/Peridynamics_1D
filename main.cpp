@@ -90,7 +90,7 @@ int main() {
     write_vtk_1d(points, "C:/Users/srini/Downloads/FAU/Semwise Course/Programming Project/peridynamics 1D vtk/initial.vtk");
 
     // Newton-Raphson setup
-    int steps = 100;
+    int steps = 5;
     double load_step = (1.0 / steps);
     double tol = 1e-6;
     int max_try = 30;
@@ -158,7 +158,7 @@ int main() {
 
         // Output current state
         for (const auto& p : points) {
-            std::cout << "Point " << p.Nr << ": x = " << p.x << ", displacement = " << (p.x - p.X) << std::endl;
+            //std::cout << "Point " << p.Nr << ": x = " << p.x << ", displacement = " << (p.x - p.X) << std::endl;
         }
     }
 
