@@ -11,25 +11,10 @@
 #include "Points.h"
 
 
-void create_directory_if_not_exists(const std::string& dir_path) {
-    // Create the directory if it doesn't exist
-    if (!std::filesystem::exists(dir_path)) {
-        std::filesystem::create_directories(dir_path);
-        std::cout << "Created directory: " << dir_path << std::endl;
-    }
-}
-
 void write_vtk_1d(const std::vector<Points>& point_list, const std::string& filename) {
-    // Create the results directory if it doesn't exist
-    std::string results_dir = "results_vtk";
-    create_directory_if_not_exists(results_dir);
-    
-    // Create the full path for the VTK file
-    std::string full_path = results_dir + "/" + filename;
-    
-    std::ofstream vtk_file(full_path);
+    std::ofstream vtk_file(filename);
     if (!vtk_file.is_open()) {
-        std::cerr << "Failed to open VTK file for writing: " << full_path << std::endl;
+        std::cerr << "Failed to open VTK file for writing: " << filename << std::endl;
         return;
     }
 
@@ -59,7 +44,7 @@ void write_vtk_1d(const std::vector<Points>& point_list, const std::string& file
     }
 
     vtk_file.close();
-    std::cout << "VTK file written to " << full_path << std::endl;
+    std::cout << "VTK file written to " << filename << std::endl;
 }
 
 // --- Main Function ---
@@ -102,10 +87,10 @@ int main() {
     }
 
     // Write initial mesh to VTK
-    write_vtk_1d(points, "initial.vtk");
+    write_vtk_1d(points, "C:/Users/srini/Downloads/FAU/Semwise Course/Programming Project/peridynamics 1D vtk/initial.vtk");
 
     // Newton-Raphson setup
-    int steps = 5;
+    int steps = 100;
     double load_step = (1.0 / steps);
     double tol = 1e-6;
     int max_try = 30;
@@ -165,17 +150,19 @@ int main() {
             update_points(points, LF, dx, "Displacement");
             error_counter++;
         }
-        
-        // Generate VTK file for this load step
         std::ostringstream load_filename;
-        load_filename << "load_" << std::fixed << std::setprecision(2) << LF << ".vtk";
+        load_filename << "C:/Users/srini/Downloads/FAU/Semwise Course/Programming Project/peridynamics 1D vtk/load_" << std::fixed << std::setprecision(2) << LF << ".vtk";
         write_vtk_1d(points, load_filename.str());
 
         LF += load_step;
+
+        // Output current state
+        for (const auto& p : points) {
+            std::cout << "Point " << p.Nr << ": x = " << p.x << ", displacement = " << (p.x - p.X) << std::endl;
+        }
     }
 
-    // Write final state to VTK
-    write_vtk_1d(points, "final.vtk");
+    write_vtk_1d(points, "C:/Users/srini/Downloads/FAU/Semwise Course/Programming Project/peridynamics 1D vtk/final.vtk");
 
     return 0;
 }
