@@ -1,4 +1,0 @@
-"C:\Program Files\JetBrains\CLion 2024.2.2\bin\cmake\win\x64\bin\cmake.exe" -DCMAKE_BUILD_TYPE=Debug "-DCMAKE_MAKE_PROGRAM=C:/Program Files/JetBrains/CLion 2024.2.2/bin/ninja/win/x64/ninja.exe" -DCMAKE_TOOLCHAIN_FILE=C:\Users\srini\.vcpkg-clion\vcpkg\scripts\buildsystems\vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-mingw-dynamic -G Ninja -S "C:\Users\srini\Downloads\FAU\Semwise Course\Programming Project\Peridynamics_1D" -B "C:\Users\srini\Downloads\FAU\Semwise Course\Programming Project\Peridynamics_1D\cmake-build-debug"
--- Configuring done (0.2s)
--- Generating done (0.0s)
--- Build files have been written to: C:/Users/srini/Downloads/FAU/Semwise Course/Programming Project/Peridynamics_1D/cmake-build-debug
