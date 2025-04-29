@@ -1,0 +1,28 @@
+# Ignore build directory
+/build/
+
+# Ignore IDE files
+/.idea/
+/*.iml
+
+# Ignore compiled files
+*.o
+*.a
+*.so
+*.exe
+
+# Ignore CMake files
+/CMakeCache.txt
+/CMakeFiles/
+/Makefile
+*.cmake
+
+# Ignore submodule directories
+/eigen/
+/extern/eigen/
+
+# Ignore results
+/results/
+
+# Ignore logs
+*.log
