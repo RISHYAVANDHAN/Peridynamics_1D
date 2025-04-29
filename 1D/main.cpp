@@ -165,18 +165,16 @@ int main() {
             update_points(points, LF, dx, "Displacement");
             error_counter++;
         }
+        
+        // Generate VTK file for this load step
         std::ostringstream load_filename;
         load_filename << "load_" << std::fixed << std::setprecision(2) << LF << ".vtk";
         write_vtk_1d(points, load_filename.str());
 
         LF += load_step;
-
-        // Output current state
-        for (const auto& p : points) {
-            //std::cout << "Point " << p.Nr << ": x = " << p.x << ", displacement = " << (p.x - p.X) << std::endl;
-        }
     }
 
+    // Write final state to VTK
     write_vtk_1d(points, "final.vtk");
 
     return 0;
