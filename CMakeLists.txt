@@ -1,16 +1,22 @@
-cmake_minimum_required(VERSION 3.29)
+cmake_minimum_required(VERSION 3.14)
 project(Peridynamics_1D)
 
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD 17)
 
-# Find Eigen3 package
-find_package(Eigen3 CONFIG REQUIRED)
+include(FetchContent)
 
-# Define the executable target and source files
+FetchContent_Declare(
+  eigen
+  GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
+  GIT_TAG 3.4.0  # Use the desired Eigen version
+)
+
+FetchContent_MakeAvailable(eigen)
+
 add_executable(Peridynamics_1D
-        main.cpp
-        Points.h
-        Points.cpp)
+    main.cpp
+    Points.cpp
+    Points.h
+)
 
-# Link the Eigen3 library to your target
 target_link_libraries(Peridynamics_1D PRIVATE Eigen3::Eigen)
