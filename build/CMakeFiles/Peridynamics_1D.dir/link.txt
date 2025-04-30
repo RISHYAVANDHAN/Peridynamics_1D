@@ -1,1 +1,0 @@
-/usr/bin/c++ CMakeFiles/Peridynamics_1D.dir/1D/main.cpp.o CMakeFiles/Peridynamics_1D.dir/1D/Points.cpp.o -o Peridynamics_1D 

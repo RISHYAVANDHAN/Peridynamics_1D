@@ -1,3 +1,0 @@
-/home/srini/Peridynamics_1D/build/CMakeFiles/Peridynamics_1D.dir
-/home/srini/Peridynamics_1D/build/CMakeFiles/edit_cache.dir
-/home/srini/Peridynamics_1D/build/CMakeFiles/rebuild_cache.dir
