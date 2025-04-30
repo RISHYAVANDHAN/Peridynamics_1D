@@ -8,8 +8,7 @@
 Points::Points() : Nr(0), X(0.0), x(0.0), volume(0.0) {}
 
 // Mesh generation function
-std::vector<Points> mesh(double domain_size, int number_of_patches, double Delta,
-                         int number_of_right_patches, int& DOFs, int& DOCs, double d)
+std::vector<Points> mesh(double domain_size, int number_of_patches, double Delta, int number_of_right_patches, int& DOFs, int& DOCs, double d)
 {
     std::vector<Points> point_list;
     const int number_of_points = std::floor(domain_size / Delta) + 1;
@@ -26,13 +25,14 @@ std::vector<Points> mesh(double domain_size, int number_of_patches, double Delta
         point.neighborsx.clear();
         point.neighborsX.clear();
 
-        if (i < number_of_patches) {
+        if (point.X < (number_of_patches * Delta)) {
             point.Flag = "Patch";
             point.BCval = 0;
             point.BCflag = 0;
             point.DOC = ++DOCs;
         }
-        else if (i >= number_of_patches + number_of_points) {
+        else if ((point.X > (Delta * (number_of_points + number_of_patches))))
+        {
             point.Flag = "RightPatch";
             point.BCval = d;
             point.BCflag = 0;
