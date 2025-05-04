@@ -1,6 +1,7 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
+#include <chrono>
 #include <iomanip>
 #include <fstream>
 #include <filesystem>
@@ -50,7 +51,7 @@ void write_vtk_1d(const std::vector<Points>& point_list, const std::string& file
 // --- Main Function ---
 int main() {
     std::cout << "Starting 1D Peridynamics simulation!" << std::endl;
-
+    auto start_time = std::chrono::high_resolution_clock::now();
     // Parameters
     double domain_size = 1.0;
     double delta = 0.301;
@@ -87,7 +88,7 @@ int main() {
     }
 
     // Write initial mesh to VTK
-    write_vtk_1d(points, "C:/Users/srini/Downloads/FAU/Semwise Course/Programming Project/peridynamics 1D vtk/initial.vtk");
+    write_vtk_1d(points, "C:/Users/Aniruddha P S/CLionProjects/Peridynamics_1D/peridynamics 1D vtk/initial.vtk");
 
     // Newton-Raphson setup
     int steps = 100;
@@ -106,6 +107,9 @@ int main() {
     // Initialize Eigen objects
     Eigen::VectorXd R = Eigen::VectorXd::Zero(DOFs);
     Eigen::SparseMatrix<double> K;
+    Eigen::MatrixXd Kuu;  // Add this
+    Eigen::MatrixXd Kpu;
+    Eigen::VectorXd f_reaction;
     Eigen::VectorXd dx = Eigen::VectorXd::Zero(DOFs);
 
     // Load stepping loop
@@ -125,7 +129,7 @@ int main() {
         while (isNotAccurate && error_counter <= max_try) {
             calculate_rk(points, C1, delta);
 
-            assembly(points, DOFs, R, K, "residual");
+            assembly(points, DOFs, DOCs, R, K, Kuu, Kpu, "residual");
 
             double residual_norm = R.norm();
             if (error_counter == 1) {
@@ -142,16 +146,16 @@ int main() {
                 }
             }
 
-            assembly(points, DOFs, R, K, "stiffness");
-
-            Eigen::FullPivLU<Eigen::MatrixXd> solver(K);
+            assembly(points, DOFs, DOCs, R, K, Kuu, Kpu, "stiffness");
+            Eigen::FullPivLU<Eigen::MatrixXd> solver(Kuu);
             dx += solver.solve(-R);
 
+            f_reaction = Kpu * dx;
             update_points(points, LF, dx, "Displacement");
             error_counter++;
         }
         std::ostringstream load_filename;
-        load_filename << "C:/Users/srini/Downloads/FAU/Semwise Course/Programming Project/peridynamics 1D vtk/load_" << std::fixed << std::setprecision(2) << LF << ".vtk";
+        load_filename << "C:/Users/Aniruddha P S/CLionProjects/Peridynamics_1D/peridynamics 1D vtk/load_" << std::fixed << std::setprecision(2) << LF << ".vtk";
         write_vtk_1d(points, load_filename.str());
 
         LF += load_step;
@@ -160,9 +164,16 @@ int main() {
         for (const auto& p : points) {
             std::cout << "Point " << p.Nr << ": x = " << p.x << ", displacement = " << (p.x - p.X) << std::endl;
         }
+        std::cout << "force reaction for the current step" << f_reaction << std::endl;
     }
 
-    write_vtk_1d(points, "C:/Users/srini/Downloads/FAU/Semwise Course/Programming Project/peridynamics 1D vtk/final.vtk");
+    write_vtk_1d(points, "C:/Users/Aniruddha P S/CLionProjects/Peridynamics_1D/peridynamics 1D vtk/final.vtk");
+    auto end_time = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> diff = end_time - start_time;
+
+    std::cout << "======================================================" << std::endl;
+    std::cout << "Total computation time: " << diff.count() << " seconds" << std::endl;
+    std::cout << "======================================================" << std::endl;
 
     return 0;
 }

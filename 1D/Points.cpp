@@ -1,4 +1,5 @@
 
+#include <omp.h>
 #include "Points.h"
 #include <iostream>
 #include <cmath>
@@ -16,6 +17,7 @@ std::vector<Points> mesh(double domain_size, int number_of_patches, double Delta
     int index = 0;
     double FF = 1 + d;
 
+    //#pragma omp parallel for
     for (int i = 0; i < total_points; i++) {
         Points point;
         point.Nr = index++;
@@ -63,6 +65,7 @@ std::vector<Points> mesh(double domain_size, int number_of_patches, double Delta
 // Neighbour list calculation
 void neighbour_list(std::vector<Points>& point_list, double& delta)
 {
+    //#pragma omp parallel for
     for (auto &i : point_list) {
         i.neighbours.clear();
         i.neighborsx.clear();
@@ -101,6 +104,7 @@ void calculate_rk(std::vector<Points>& point_list, double C1, double delta)
     constexpr double pi = 3.14159265358979323846;
     double Vh = (4.0 / 3.0) * pi * std::pow(delta, 3);
 
+    //#pragma omp parallel for
     for (auto& i : point_list)
     {
         // Reset values
@@ -162,7 +166,8 @@ void calculate_rk(std::vector<Points>& point_list, double C1, double delta)
 
 
 // Assemble residual or stiffness matrix
-void assembly(const std::vector<Points>& point_list, int DOFs, Eigen::VectorXd& R, Eigen::SparseMatrix<double>& K, const std::string& flag)
+void assembly(const std::vector<Points>& point_list, int DOFs, int DOCs, Eigen::VectorXd& R, Eigen::SparseMatrix<double>& K, Eigen::MatrixXd& Kuu  // Add this
+,Eigen::MatrixXd& Kpu, const std::string& flag)
 {
     if (flag == "residual") {
         // Reset residual vector
@@ -183,39 +188,87 @@ void assembly(const std::vector<Points>& point_list, int DOFs, Eigen::VectorXd& 
         //std::cout << "\nResidual Vector R:\n" << R << std::endl;
     }
     else if (flag == "stiffness") {
-        // Reset stiffness matrix
         K.setZero();
         std::vector<Eigen::Triplet<double>> triplets;
 
-        // Assemble stiffness
+        int total_size = DOFs + DOCs;
+        Eigen::MatrixXd Total_stiffness_matrix = Eigen::MatrixXd::Zero(total_size, total_size);
+
+        // Reset stiffness matrix
         for (const auto& point : point_list) {
-            double BCflg_p = point.BCflag;
-            int DOF_p = point.DOF;
+            // Determine global row index
+            int row = (point.BCflag == 1) ? point.DOF - 1 : DOFs + point.DOC - 1;
 
-            if (BCflg_p == 1) {
-                // Create extended neighbor list including the point itself
-                std::vector<int> neighborsE = point.neighbours;
-                neighborsE.push_back(point.Nr);
+            // Extended neighbor list
+            std::vector<int> neighborsE = point.neighbours;
+            neighborsE.push_back(point.Nr);
 
-                for (size_t q = 0; q < neighborsE.size(); q++) {
-                    int nbr_idx = neighborsE[q];
-                    double BCflg_q = point_list[nbr_idx].BCflag;
-                    int DOF_q = point_list[nbr_idx].DOF;
+            for (size_t q = 0; q < neighborsE.size(); q++) {
+                int nbr_idx = neighborsE[q];
+                const auto& neighbor = point_list[nbr_idx];
 
-                    if (BCflg_q == 1) {
-                        double Kval = point.stiffness[q];
-                        triplets.emplace_back(DOF_p - 1, DOF_q - 1, Kval);
-                        //std::cout << "[Stiffness] K(" << DOF_p << "," << DOF_q << ") = " << Kval << " from Point " << point.Nr << " to Point " << nbr_idx << "\n";
-                    }
+                // Determine global column index
+                int col = (neighbor.BCflag == 1) ? neighbor.DOF - 1 : DOFs + neighbor.DOC - 1;
+
+                double Kval = point.stiffness[q];
+
+                // Fill into dense matrix
+                Total_stiffness_matrix(row, col) += Kval;
+            }
+        }
+
+        // Now build triplets from Total_stiffness_matrix
+        for (int i = 0; i < total_size; ++i) {
+            for (int j = 0; j < total_size; ++j) {
+                if (std::abs(Total_stiffness_matrix(i, j)) > 1e-14) { // Only nonzero entries
+                    triplets.emplace_back(i, j, Total_stiffness_matrix(i, j));
                 }
             }
         }
 
-        K.resize(DOFs, DOFs);
+        K.resize(total_size, total_size);
         K.setFromTriplets(triplets.begin(), triplets.end());
 
+        // Optional: Convert sparse matrix to dense for debugging or inspection
         Eigen::MatrixXd A = Eigen::MatrixXd(K);
 
+        std::vector<int> unknown_indices;
+        std::vector<int> prescribed_indices;
+
+        for (const auto& point : point_list) {
+            if (point.BCflag == 1) {
+                unknown_indices.push_back(point.DOF - 1);  // DOF is 1-based
+            } else {
+                prescribed_indices.push_back(DOFs + point.DOC - 1);  // DOC is also 1-based
+            }
+        }
+
+        // === Step 2: Resize Kuu, Kpu, Kpp ===
+        int Kuu_size = static_cast<int>(unknown_indices.size());
+        int Kpp_size = static_cast<int>(prescribed_indices.size());
+        Kuu.resize(Kuu_size, Kuu_size);
+        Kpu.resize(Kpp_size, Kuu_size);
+        Eigen::MatrixXd Kpp(Kpp_size, Kpp_size);
+
+        for (int i = 0; i < Kuu_size; ++i) {
+            for (int j = 0; j < Kuu_size; ++j) {
+                Kuu(i, j) = Total_stiffness_matrix(unknown_indices[i], unknown_indices[j]);
+            }
+        }
+
+        // === Step 4: Fill Kpu ===
+        for (int i = 0; i < Kpp_size; ++i) {
+            for (int j = 0; j < Kuu_size; ++j) {
+                Kpu(i, j) = Total_stiffness_matrix(prescribed_indices[i], unknown_indices[j]);
+            }
+        }
+
+        // === Step 5: Fill Kpp ===
+        for (int i = 0; i < Kpp_size; ++i) {
+            for (int j = 0; j < Kpp_size; ++j) {
+                Kpp(i, j) = Total_stiffness_matrix(prescribed_indices[i], prescribed_indices[j]);
+            }
+        }
         //std::cout << "\nStiffness matrix size: " << A.rows() << " x " << K.cols() << std::endl;
         //std::cout << "\nStiffness Matrix K:\n" << A << std::endl;
     }
@@ -225,6 +278,7 @@ void assembly(const std::vector<Points>& point_list, int DOFs, Eigen::VectorXd& 
 void update_points(std::vector<Points>& point_list, double LF, Eigen::VectorXd& dx, const std::string& Update_flag)
 {
     if (Update_flag == "Prescribed") {
+        //#pragma omp parallel for
         for (auto& i : point_list) {
             if (i.BCflag == 0) {
                 i.x = i.X + (LF * i.BCval);
@@ -232,6 +286,7 @@ void update_points(std::vector<Points>& point_list, double LF, Eigen::VectorXd& 
         }
     }
     else if (Update_flag == "Displacement") {
+        //#pragma omp parallel for
         for (auto& i : point_list) {
             if (i.BCflag == 1 && i.DOF > 0) {
                 i.x += dx(i.DOF - 1);
