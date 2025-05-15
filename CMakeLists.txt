@@ -5,11 +5,13 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Simply include Eigen headers
-include_directories(eigen)
+find_package(Eigen3 REQUIRED)
 
 # Fix paths to source files
 add_executable(Peridynamics_1D
-    1D/main.cpp
-    1D/Points.cpp
-    1D/Points.h
+        main.cpp
+        Points.cpp
+        Points.h
 )
+
+target_link_libraries(Peridynamics_1D PRIVATE Eigen3::Eigen)
