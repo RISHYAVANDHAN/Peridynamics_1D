@@ -71,6 +71,7 @@ int main() {
     double delta = 0.301;
     double Delta = 0.1;
     double d = 1.0;
+	double nn = 1.0;
     int number_of_patches = 3;
     int number_of_right_patches = 3;
     double C1 = 0.5;
@@ -78,11 +79,14 @@ int main() {
     int DOCs = 0;
 
     // specify node numbers and forces
-    std::vector<int> force_nodes = {14}; // Applying force to node 2
-    std::vector<double> forces = {0.34902}; // Force magnitude
+
+	std::vector<double> patch_displacements = {0.4, 0.8, 1.0};
+
+    std::vector<int> force_nodes = {}; // Applying force to nodes
+    std::vector<double> forces = {}; // Force magnitude
 
     // Create mesh
-    std::vector<Points> points = mesh(domain_size, number_of_patches, Delta, number_of_right_patches, DOFs, DOCs, d, force_nodes, forces);
+    std::vector<Points> points = mesh(domain_size, number_of_patches, Delta, number_of_right_patches, DOFs, DOCs, patch_displacements, force_nodes, forces);
     std::cout << "Mesh contains " << points.size() << " points with " << DOFs << " DOFs\n";
     neighbour_list(points, delta);
 
@@ -152,7 +156,7 @@ int main() {
         // Newton-Raphson iteration
         while (isNotAccurate && error_counter <= max_try) {
 			// Calculate internal forces and account for external forces
-            calculate_rk(points, C1, delta);
+            calculate_rk(points, C1, delta, nn);
 
         	// Assemble residual (F_int - F_ext already done in calculate_rk)
         	assembly(points, DOFs, DOCs, R, K, Kuu, Kpu, Kpp, "residual");
@@ -174,6 +178,7 @@ int main() {
 
         	// Assemble stiffness matrix
         	assembly(points, DOFs, DOCs, R, K, Kuu, Kpu, Kpp, "stiffness");
+			std::cout << "Kuu:\n" << Kuu << "\nKpu:\n" << Kpu << "\nKpp:\n" << Kpp << std::endl;
 
         	// Solve system
         	Eigen::FullPivLU<Eigen::MatrixXd> solver(Kuu);
@@ -186,12 +191,12 @@ int main() {
         	Eigen::VectorXd u_prescribed = Eigen::VectorXd::Zero(DOCs);
         	for (const auto& p : points) {
             	if (p.BCflag == 0) {
-                	u_prescribed(p.DOC-1) = p.BCval * LF;
+                	u_prescribed(p.DOC-1) = p.x - p.X;
             	}
         	}
 
         	// Calculate reactions before updating positions
-        	f_reaction = -(Kpu * u_free + Kpp * u_prescribed);
+        	f_reaction = -(Kpu * dx.head(DOFs) + Kpp * u_prescribed);
 
         	error_counter++;
     	}

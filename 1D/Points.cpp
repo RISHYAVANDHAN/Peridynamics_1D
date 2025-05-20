@@ -5,12 +5,13 @@
 #include <cmath>
 #include <unordered_map>
 #include <Eigen/Sparse>
+#include "hyperdual.h"
 
 // Default constructor for the Points class
 Points::Points() : Nr(0), X(0.0), x(0.0), volume(0.0) {}
 
 // Mesh generation function
-std::vector<Points> mesh(double domain_size, int number_of_patches, double Delta, int number_of_right_patches, int& DOFs, int& DOCs, double d, const std::vector<int>& force_nodes,
+std::vector<Points> mesh(double domain_size, int number_of_patches, double Delta, int number_of_right_patches, int& DOFs, int& DOCs, const std::vector<double>& patch_displacements, const std::vector<int>& force_nodes,
                         const std::vector<double>& forces)
 {
     std::vector<Points> point_list;
@@ -18,16 +19,15 @@ std::vector<Points> mesh(double domain_size, int number_of_patches, double Delta
     int total_points = number_of_patches + number_of_right_patches + number_of_points;
     int index = 0;
 
-    if (force_nodes.size() != forces.size()) {
-        std::cerr << "Error: force_nodes and forces vectors must be the same size\n";
-        return point_list;
-    }
-
     std::unordered_map<int, double> force_map;
-    for (size_t i = 0; i < force_nodes.size(); i++) {
-        force_map[force_nodes[i]] = forces[i];
+    if (!force_nodes.empty()) {
+    double force_per_node = forces[0] / force_nodes.size();  // Equal division
+    for (int node_id : force_nodes) {
+        force_map[node_id] = force_per_node;
+    	}
+	}
+	int patch_index = 0;
 
-    }
     //#pragma omp parallel for
     for (int i = 0; i < total_points; ++i)
     {
@@ -35,7 +35,6 @@ std::vector<Points> mesh(double domain_size, int number_of_patches, double Delta
         point.Nr = index++;
         point.X  = Delta/2 + i*Delta;
         point.x  = point.X;
-
         // ---------- 1. mark force nodes ----------
         if (force_map.count(point.Nr))
          {
@@ -54,15 +53,24 @@ std::vector<Points> mesh(double domain_size, int number_of_patches, double Delta
             point.BCval  = 0.0;
         }
         else if (!point.Forceflag &&
-                 point.X > Delta*(number_of_points+number_of_patches)) {
+                 point.X >= Delta*(number_of_points+number_of_patches)) {
             point.Flag   = "RightPatch";
             point.BCflag = 0;           // fixed
-            point.BCval  = d;           // prescribed displacement
+
+			// Assign unique displacement from vector
+            if (patch_index < patch_displacements.size()) {
+                point.BCval = patch_displacements[patch_index++];
+            } else {
+                point.BCval = 0.0; // Default if not enough values provided
+            }
+
                  }
         else if (!point.Forceflag) {    // ordinary free node
             point.Flag   = "Point";
             point.BCflag = 1;
-            point.BCval  = (1+d)*point.X - point.X;
+    		double effective_d = 0.0;
+			effective_d = patch_displacements.back();
+            point.BCval  = (1+effective_d)*point.X - point.X;
         }
 
         point.volume = 1;
@@ -127,7 +135,7 @@ void neighbour_list(std::vector<Points>& point_list, double& delta)
 //     stiffness = -Kval  when a ≠ b  → (δₐᵦ = 0)
 
 // Calculate tangent stiffness and energy
-void calculate_rk(std::vector<Points>& point_list, double C1, double delta)
+void calculate_rk(std::vector<Points>& point_list, double C1, double delta, double nn)
 {
     constexpr double pi = 3.14159265358979323846;
     double Vh = (4.0 / 3.0) * pi * std::pow(delta, 3);
@@ -160,20 +168,22 @@ void calculate_rk(std::vector<Points>& point_list, double C1, double delta)
             double XiI = i.neighborsX[j] - i.X;
             double xiI = i.neighborsx[j] - i.x;
 
-            double L = std::abs(XiI);
-            double l = std::abs(xiI);
+            double LL = std::abs(XiI);
 
-            if (L > 0.0) {  // Avoid division by zero
-                double s = (l - L) / L;
-                double eta = (xiI / l);
+            if (LL > 0.0) {  // Avoid division by zero
+				hyperdual xiI_HD(xiI, 1.0, 1.0, 0.0);
+                hyperdual ll = fabs(xiI_HD);
+
+				hyperdual s = (1.0 / nn) * (pow(ll / LL, nn) - 1.0);
+
+                hyperdual psi = 0.5 * C1 * LL * s * s;
 
                 // Calculate energy and residual
-                i.psi += 0.5 * C1 * L * s * s;
-                i.residual += C1 * eta * s * JI;
+                i.psi += psi.real();
+                i.residual += psi.eps1() * JI;
 
                 // Calculate stiffness for each neighbor including self
                 for (int b = 0; b < NNgbrE; b++) {
-                    // This implements the (neighbors(i)==neighborsE(b))-(a==neighborsE(b)) logic
                     double K_factor = 0.0;
                     if (i.neighbours[j] == neighborsE[b]) {
                         K_factor += 1.0;
@@ -182,8 +192,7 @@ void calculate_rk(std::vector<Points>& point_list, double C1, double delta)
                         K_factor -= 1.0;
                     }
 
-                    // For 1D, the AA1 function simplifies to C1/L
-                    double stiffness_contribution = C1 / L * JI * K_factor;
+                    double stiffness_contribution = C1 / LL * JI * K_factor;
                     i.stiffness[b] += stiffness_contribution;
                 }
             }
@@ -303,6 +312,8 @@ void assembly(const std::vector<Points>& point_list, int DOFs, int DOCs, Eigen::
                 Kpp(i, j) = Total_stiffness_matrix(prescribed_indices[i], prescribed_indices[j]);
             }
         }
+		//std::cout << "Kuu:\n" << Kuu << "\nKpu:\n" << Kpu << "\nKpp:\n" << Kpp << std::endl;
+		//std::cin.get();
         //std::cout << "\nStiffness matrix size: " << A.rows() << " x " << K.cols() << std::endl;
         //std::cout << "\nStiffness Matrix K:\n" << A << std::endl;
     }

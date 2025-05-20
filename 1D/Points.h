@@ -40,10 +40,10 @@ public:
 };
 
 // Function declarations
-std::vector<Points> mesh(double domain_size, int number_of_patches, double Delta, int number_of_right_patches, int& DOFs, int& DOCs, double d, const std::vector<int>& force_nodes = {},
+std::vector<Points> mesh(double domain_size, int number_of_patches, double Delta, int number_of_right_patches, int& DOFs, int& DOCs, const std::vector<double>& patch_displacements, const std::vector<int>& force_nodes = {},
                         const std::vector<double>& forces = {});
 void neighbour_list(std::vector<Points>& point_list, double& delta);
-void calculate_rk(std::vector<Points>& point_list, double C1, double delta);
+void calculate_rk(std::vector<Points>& point_list, double C1, double delta, double nn);
 void assembly(const std::vector<Points>& point_list, int DOFs, int DOCs, Eigen::VectorXd& R, Eigen::SparseMatrix<double>& K, Eigen::MatrixXd& Kuu,
 Eigen::MatrixXd& Kpu, Eigen::MatrixXd& Kpp,   const std::string& flag);
 void update_points(std::vector<Points>& point_list, double LF, Eigen::VectorXd& dx,
