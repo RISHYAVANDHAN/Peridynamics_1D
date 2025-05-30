@@ -1,7 +1,6 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
-#include <chrono>
 #include <iomanip>
 #include <fstream>
 #include <filesystem>
@@ -9,24 +8,9 @@
 #include <Eigen/Sparse>
 #include <string>
 #include <algorithm>
-#include <filesystem>
 #include "Points.h"
 
-void ensure_directories(const std::string& path)
-{
-    namespace fs = std::filesystem;
-    fs::path p(path);
-    fs::path dir = p.parent_path();
-
-    if (!dir.empty() && !fs::exists(dir)) {
-        fs::create_directories(dir);
-    }
-}
-
 void write_vtk_1d(const std::vector<Points>& point_list, const std::string& filename) {
-
-    ensure_directories(filename);
-
     std::ofstream vtk_file(filename);
     if (!vtk_file.is_open()) {
         std::cerr << "Failed to open VTK file for writing: " << filename << std::endl;
@@ -44,7 +28,6 @@ void write_vtk_1d(const std::vector<Points>& point_list, const std::string& file
         vtk_file << point.x << " 0.0 0.0\n";
     }
 
-    // Add lines connecting adjacent points to emphasize horizontal layout
     vtk_file << "LINES " << (point_list.size()-1) << " " << (point_list.size()-1)*3 << "\n";
     for (size_t i = 0; i < point_list.size()-1; i++) {
         vtk_file << "2 " << i << " " << (i+1) << "\n";
@@ -64,82 +47,73 @@ void write_vtk_1d(const std::vector<Points>& point_list, const std::string& file
 
 // --- Main Function ---
 int main() {
-    std::cout << "Starting 1D Peridynamics simulation!" << std::endl;
-    auto start_time = std::chrono::high_resolution_clock::now();
+    std::cout << "\nStarting 1D Peridynamics simulation!" << std::endl;
+
     // Parameters
     double domain_size = 1.0;
     double delta = 0.301;
     double Delta = 0.1;
-    double d = 1.0;
+    double d = 0.1;
     int number_of_patches = 3;
-    int number_of_right_patches = 3;
-    double C1 = 0.5;
+    int number_of_right_patches = 1;
+    double C1 = 0.01;
     int DOFs = 0;
     int DOCs = 0;
-
-    // specify node numbers and forces
-    std::vector<int> force_nodes = {14}; // Applying force to node 2
-    std::vector<double> forces = {0.34902}; // Force magnitude
+    double nn = 2.0;
 
     // Create mesh
-    std::vector<Points> points = mesh(domain_size, number_of_patches, Delta, number_of_right_patches, DOFs, DOCs, d, force_nodes, forces);
-    std::cout << "Mesh contains " << points.size() << " points with " << DOFs << " DOFs\n";
+    std::vector<Points> points = mesh(domain_size, number_of_patches, Delta, number_of_right_patches, DOFs, DOCs, d);
     neighbour_list(points, delta);
 
-    // Debugging the points and their neighbours
-    for (const auto& i : points) {
-        std::cout << "Nr: " << i.Nr << std::endl << "X: [";
-        std::cout << i.X << ", 0, 0";
-        std::cout << "]" << std::endl << "x: [" << i.x << ", 0, 0 ]" << std::endl;
-        std::cout << "Volume: " << i.volume << std::endl;
-        std::cout << "BC: " << i.BCflag << std::endl << "Flag: " << i.Flag << std::endl;
-        std::cout << "Force Flag: " << i.Forceflag << std::endl;
-        if (i.Forceflag) {
-            std::cout << "Applied Force: [" << i.ForceMag << ", 0, 0]" << std::endl;
-        }
-        std::cout << "Neighbours of " << i.Nr << " are: [";
-        for (const auto& n : i.neighbours)
+    // Debug mesh information
+    std::cout << "\n=== Mesh & neighbour Information ===" << std::endl;
+    std::cout << "Mesh contains " << points.size() << " points with " << DOFs << " DOFs\n";
+    for (const auto& point : points) {
+        std::cout << "Point " << point.Nr << ": X = " << point.X << " , Flag = " << point.Flag 
+                  << " , BCflag = " << point.BCflag << " , DOF = " << point.DOF 
+                  << " , Neighbors = " << point.n1 << std::endl;
+        std::cout << "Neighbours of " << point.Nr << " are: [";
+        for (auto& n : point.neighbours)
         {
             std::cout << "{ ";
             std::cout << n << " ";
             std::cout << "} ";
         }
         std::cout << "]";
-        std::cout << "\nNumber of neighbours for point " << i.Nr << ": " << i.n1 << std::endl;
+        std::cout << "\nNumber of neighbours for point " << point.Nr << ": " << point.n1 << std::endl;
         std::cout << std::endl;
     }
-
+    
     // Write initial mesh to VTK
-    write_vtk_1d(points, "peridynamics 1D vtk/initial.vtk");
+    //write_vtk_1d(points, "C:/Users/srini/Downloads/FAU/Semwise Course/Programming Project/peridynamics 1D vtk/initial.vtk");
 
     // Newton-Raphson setup
-    int steps = 100;
+    int steps = 10;
     double load_step = (1.0 / steps);
-    double tol = 1e-6;
-    int max_try = 30;
+    double tol = 1e-10;
+    int min_try = 0;
+    int max_try = 10;
     double LF = 0.0;
+    int counter = 0;
 
     std::cout << "======================================================" << std::endl;
     std::cout << "Simulation Parameters:" << std::endl;
     std::cout << "Domain Size: " << domain_size << " | Delta: " << Delta<< " | Horizon: " << delta << std::endl;
     std::cout << "Steps: " << steps << " | Load Step: " << load_step<< " | Tolerance: " << tol << std::endl;
     std::cout << "Material constant C1: " << C1 << std::endl;
+    std::cout << "Material Power Law NN: " << nn << std::endl;
     std::cout << "======================================================" << std::endl;
 
     // Initialize Eigen objects
     Eigen::VectorXd R = Eigen::VectorXd::Zero(DOFs);
     Eigen::SparseMatrix<double> K;
-    Eigen::MatrixXd Kuu;  // Add this
-    Eigen::MatrixXd Kpu;
-    Eigen::MatrixXd Kpp;
-    Eigen::VectorXd f_reaction;
     Eigen::VectorXd dx = Eigen::VectorXd::Zero(DOFs);
 
     // Load stepping loop
     while (LF <= 1.0 + 1e-8) {
         std::cout << "\nLoad Factor: " << LF << std::endl;
 
-        // Apply prescribed displacements and forces
+        // Apply prescribed displacements
         update_points(points, LF, dx, "Prescribed");
 
         int error_counter = 1;
@@ -147,20 +121,18 @@ int main() {
         double normnull = 0.0;
 
         dx.setZero();
-		f_reaction.setZero();
 
         // Newton-Raphson iteration
         while (isNotAccurate && error_counter <= max_try) {
-			// Calculate internal forces and account for external forces
-            calculate_rk(points, C1, delta);
+            calculate_rk(points, C1, delta, nn);
 
-        	// Assemble residual (F_int - F_ext already done in calculate_rk)
-        	assembly(points, DOFs, DOCs, R, K, Kuu, Kpu, Kpp, "residual");
+            assembly(points, DOFs, R, K, "residual");
 
             double residual_norm = R.norm();
+            std::cout << "Residual Norm: " << residual_norm << std::endl;
             if (error_counter == 1) {
-                normnull = std::max(residual_norm, 1e-10);
-                std::cout << "Initial Residual Norm: " << residual_norm << std::endl;
+                normnull = std::max(residual_norm, 1e-16);
+                std::cout << "Iter 1 - Initial Residual Norm: " << residual_norm << std::endl;
             } else {
                 double rel_norm = residual_norm / normnull;
                 std::cout << "Iter " << error_counter << ": Residual Norm = " << residual_norm
@@ -170,64 +142,44 @@ int main() {
                     isNotAccurate = false;
                     std::cout << "Converged after " << error_counter << " iterations." << std::endl;
                 }
+                if (error_counter >= max_try) {
+                    std::cout << "Not converged after " << error_counter << " iterations." << std::endl;
+                }
             }
 
-        	// Assemble stiffness matrix
-        	assembly(points, DOFs, DOCs, R, K, Kuu, Kpu, Kpp, "stiffness");
+            assembly(points, DOFs, R, K, "stiffness");
 
-        	// Solve system
-        	Eigen::FullPivLU<Eigen::MatrixXd> solver(Kuu);
-        	dx += solver.solve(-R);
+            Eigen::ConjugateGradient<Eigen::SparseMatrix<double>> solver;
+            solver.compute(K);
+            Eigen::VectorXd step = solver.solve(R);
+            std::cout << "dx norm = " << step.norm() << std::endl;
+            dx += step;
 
-        	// Update displacements
-        	update_points(points, LF, dx, "Displacement");
+            if(solver.info() != Eigen::Success)
+            {
+                std::cout << "Solver failed to converge!" << std::endl;
+            }
 
-        	Eigen::VectorXd u_free = dx.head(DOFs);
-        	Eigen::VectorXd u_prescribed = Eigen::VectorXd::Zero(DOCs);
-        	for (const auto& p : points) {
-            	if (p.BCflag == 0) {
-                	u_prescribed(p.DOC-1) = p.BCval * LF;
-            	}
-        	}
+            update_points(points, LF, dx, "Displacement");
+            
+            error_counter += 1;
 
-        	// Calculate reactions before updating positions
-        	f_reaction = -(Kpu * u_free + Kpp * u_prescribed);
+        }
+        //std::ostringstream load_filename;
+        //load_filename << "C:/Users/srini/Downloads/FAU/Semwise Course/Programming Project/peridynamics 1D vtk/load_" << std::fixed << std::setprecision(2) << LF << ".vtk";
+        //write_vtk_1d(points, load_filename.str());
 
-        	error_counter++;
-    	}
+        counter += 1;
 
-    	// Output results
-    	std::ostringstream load_filename;
-    	load_filename << "peridynamics 1D vtk/load_" << std::fixed << std::setprecision(2) << LF << ".vtk";
-    	write_vtk_1d(points, load_filename.str());
-
-    	// Output current state
-    	for (const auto& p : points) {
-        	std::cout << "Point " << p.Nr << ": x = " << p.x
-                  << ", displacement = " << (p.x - p.X);
-        	if (p.Forceflag == 1) {
-            	std::cout << ", applied force = " << p.Forceval[0];
-        	}
-        	std::cout << std::endl;
-    	}
-    	std::cout << "Reaction forces:\n" << f_reaction << std::endl;
-
-    	LF += load_step;
+        LF += load_step;
 
         // Output current state
         for (const auto& p : points) {
-            std::cout << "Point " << p.Nr << ": x = " << p.x << ", displacement = " << (p.x - p.X) << std::endl;
+            //std::cout << "Point " << p.Nr << ": x = " << p.x << ", displacement = " << (p.x - p.X) << std::endl;
         }
-        std::cout << "force reaction for the current step" << f_reaction << std::endl;
     }
 
-    write_vtk_1d(points, "peridynamics 1D vtk/final.vtk");
-    auto end_time = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> diff = end_time - start_time;
-
-    std::cout << "======================================================" << std::endl;
-    std::cout << "Total computation time: " << diff.count() << " seconds" << std::endl;
-    std::cout << "======================================================" << std::endl;
+    //write_vtk_1d(points, "C:/Users/srini/Downloads/FAU/Semwise Course/Programming Project/peridynamics 1D vtk/final.vtk");
 
     return 0;
 }

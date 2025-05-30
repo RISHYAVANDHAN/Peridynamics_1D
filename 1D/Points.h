@@ -10,10 +10,11 @@
 #include <string>
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
+#include <tuple>
 
 class Points {
 public:
-    int Nr;                          // Point index
+    int Nr;                         // Point index
     double X;                        // Reference coordinates
     double x;                        // Current coordinates
     std::vector<int> neighbours;     // Neighbor list
@@ -22,11 +23,6 @@ public:
     std::string Flag;                // Patch/Point/Right Patch flag
     int BCflag{};                    // 0: Dirichlet; 1: Neumann
     double BCval{};                  // Boundary condition value
-    int Forceflag{};                 // 0 = None, 1 = prescribed force
-    double Forceval[3];              // Force value
-    double ForceMag;                 // Force Magnitude
-    int ForceDOF;                    // For augmented approach
-    double ReactionForce;            // To store reaction forces
     int DOF{};                       // Global degree of freedom
     int DOC{};                       // Constraint flag
     int n1 = 0;                      // Number of 1-neighbor interactions
@@ -40,14 +36,11 @@ public:
 };
 
 // Function declarations
-std::vector<Points> mesh(double domain_size, int number_of_patches, double Delta, int number_of_right_patches, int& DOFs, int& DOCs, double d, const std::vector<int>& force_nodes = {},
-                        const std::vector<double>& forces = {});
+std::vector<Points> mesh(double domain_size, int number_of_patches, double Delta, int number_of_right_patches, int& DOFs, int& DOCs, double d);
 void neighbour_list(std::vector<Points>& point_list, double& delta);
-void calculate_rk(std::vector<Points>& point_list, double C1, double delta);
-void assembly(const std::vector<Points>& point_list, int DOFs, int DOCs, Eigen::VectorXd& R, Eigen::SparseMatrix<double>& K, Eigen::MatrixXd& Kuu,
-Eigen::MatrixXd& Kpu, Eigen::MatrixXd& Kpp,   const std::string& flag);
-void update_points(std::vector<Points>& point_list, double LF, Eigen::VectorXd& dx,
-                  const std::string& Update_flag, Eigen::VectorXd* forces = nullptr);
+void calculate_rk(std::vector<Points>& point_list, double C1, double delta, double nn);
+void assembly(const std::vector<Points>& point_list, int DOFs, Eigen::VectorXd& R, Eigen::SparseMatrix<double>& K, const std::string& flag);
+void update_points(std::vector<Points>& point_list, double LF, Eigen::VectorXd& dx, const std::string& Update_flag);
 
 
 #endif //POINTS_H
