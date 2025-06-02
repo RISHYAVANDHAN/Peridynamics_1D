@@ -1,6 +1,8 @@
+
 #include "Points.h"
 #include <iostream>
 #include <cmath>
+#include <Eigen/Sparse>
 #include "hyperdual.h"
 
 // Default constructor for the Points class
@@ -13,7 +15,7 @@ std::vector<Points> mesh(double domain_size, int number_of_patches, double Delta
     const int number_of_points = std::floor(domain_size / Delta) + 1;
     int total_points = number_of_patches + number_of_right_patches + number_of_points;
     int index = 0;
-    double FF = 1.0 + d;
+    double FF = 1 + d;
 
     for (int i = 0; i < total_points; i++) {
         Points point;
@@ -26,32 +28,32 @@ std::vector<Points> mesh(double domain_size, int number_of_patches, double Delta
 
         if (point.X < (number_of_patches * Delta)) {
             point.Flag = "Patch";
-            point.BCval = 0.0;
+            point.BCval = 0;
             point.BCflag = 0;
             point.DOC = ++DOCs;
         }
         else if ((point.X > (Delta * (number_of_points + number_of_patches))))
         {
             point.Flag = "RightPatch";
-            point.BCval = (FF * point.X) - point.X;
+            point.BCval = d;
             point.BCflag = 0;
             point.DOC = ++DOCs;
         }
         else {
             point.Flag = "Point";
             point.BCflag = 1;
-            point.BCval = 0.0;
+            point.BCval = (FF * point.X) - point.X;
             point.DOF = ++DOFs;
         }
 
-        point.volume = Delta;
-        point_list.emplace_back(point);
+        point.volume = 1;
+        point_list.push_back(point);
     }
 
     // Recalculate DOFs and assign correct indices
     DOFs = 0;
     for (auto& point : point_list) {
-        if (point.BCflag == 1.0) {
+        if (point.BCflag == 1) {
             point.DOF = ++DOFs;
         }
     }
@@ -71,13 +73,12 @@ void neighbour_list(std::vector<Points>& point_list, double& delta)
         for (auto &j : point_list) {
             if ((i.Nr != j.Nr) &&(std::abs(i.X - j.X) < delta))
             {
-                i.neighbours.emplace_back(j.Nr);
-                i.neighborsx.emplace_back(j.x);
-                i.neighborsX.emplace_back(j.X);
+                i.neighbours.push_back(j.Nr);
+                i.neighborsx.push_back(j.x);
+                i.neighborsX.push_back(j.X);
                 i.n1++;
             }
-        }
-        i.stiffness.resize(i.n1, 0.0);
+        }   
     }
 }
 
@@ -94,74 +95,60 @@ void neighbour_list(std::vector<Points>& point_list, double& delta)
 //     K_aa = +Kval  when a == b  → (δₐᵦ = 1)
 //     stiffness = -Kval  when a ≠ b  → (δₐᵦ = 0)
 
-// Calculate tangent stiffness and energy
-
+// Calculate tangent stiffness and energy 
 
 void calculate_rk(std::vector<Points>& point_list, double C1, double delta, double nn)
 {
-    // i just included nn here, so as to no change everything back and forth when playing around with and without power law.
-    // this is without power law.
+    constexpr double pi = 3.14159265358979323846;
+    double Vh = (4.0 / 3.0) * pi * std::pow(delta, 3);
 
-    double Vh = 2 * delta;
-    
-    for (size_t i = 0; i < point_list.size() ; i++)
+    for (auto& i : point_list)
     {
-        point_list[i].residual = 0.0;
-        point_list[i].psi = 0.0;
-        point_list[i].stiffness.clear();
+        i.residual = 0.0;
+        i.psi = 0.0;
+        double JI = Vh / i.n1;
 
-        double JI = Vh / point_list[i].n1;
+        std::vector<int> neighborsE = i.neighbours;
+        std::vector<double> neighborsEx = i.neighborsx;
+        std::vector<double> neighborsEX = i.neighborsX;
 
-        // Create extended neighbor list (including the point itself)
-        std::vector<int> neighborsE = point_list[i].neighbours;
-        std::vector<double> neighborsEx = point_list[i].neighborsx;
-        std::vector<double> neighborsEX = point_list[i].neighborsX;
+        neighborsE.push_back(i.Nr);
+        neighborsEx.push_back(i.x);
+        neighborsEX.push_back(i.X);
 
-        // Add the point itself to the extended neighbors
-        neighborsE.emplace_back(point_list[i].Nr);
-        neighborsEx.emplace_back(point_list[i].x);
-        neighborsEX.emplace_back(point_list[i].X);
+        const int NNgbrE = neighborsE.size();
+        i.stiffness.clear();
+        i.stiffness.resize(NNgbrE, 0.0);
 
-        const int NNgbrE = neighborsE.size(); // Extended neighbor count
+        for (size_t j = 0; j < i.n1; j++) {
+            double XiI = i.neighborsX[j] - i.X;
+            double xiI = i.neighborsx[j] - i.x;
+            double LL = std::abs(XiI);
 
-        // Resize stiffness to accommodate all neighbors including self
-        point_list[i].stiffness.resize(NNgbrE, 0.0);
+            if (LL > 0.0) {
+                hyperdual xiI_HD(xiI, 1.0, 1.0, 0.0);
+                hyperdual ll = fabs(xiI_HD);
 
-        for (size_t j = 0; j < point_list[i].n1; j++) {
-            double XiI = point_list[i].neighborsX[j] - point_list[i].X;
-            double xiI = point_list[i].neighborsx[j] - point_list[i].x;
+                // Lambda power-law stretch: s = (1/nn) * [ (l/LL)^nn - 1 ]
+                hyperdual s = (1.0 / nn) * (pow(ll / LL, nn) - 1.0);
 
-            double L = std::abs(XiI);
-            double l = std::abs(xiI);
+                hyperdual psi = 0.5 * C1 * LL * s * s;
 
-            if (L > 0.0) {  // Avoid division by zero
-                double s = (l - L) / L;
-                double eta = (xiI / l);
+                i.psi += psi.real();
+                i.residual += psi.eps1() * JI;
 
-                // Calculate energy and residual
-                point_list[i].psi += 0.5 * C1 * L * s * s * JI;
-                double R1_temp = C1 * eta * s * JI;
-                point_list[i].residual += R1_temp;
-
-                // Calculate stiffness for each neighbor including self
-                for (size_t b = 0; b < NNgbrE; b++) {
-                    // This implements the (neighbors(i)==neighborsE(b))-(a==neighborsE(b)) logic
+                for (int b = 0; b < NNgbrE; b++) {
                     double K_factor = 0.0;
-                    if (point_list[i].neighbours[j] == neighborsE[b]) {
-                        K_factor -= 1.0;
-                    }
-                    if (point_list[i].Nr == neighborsE[b]) {
-                        K_factor += 1.0;
-                    }
-                    // For 1D, the AA1 function simplifies to C1/L
-                    double stiffness_contribution = C1 * (1.0 / L) * JI * K_factor;
-                    point_list[i].stiffness[b] += stiffness_contribution;
-                    //std::cout<<"Stiffness vector for 1d of the point: "<<point_list[i].Nr<<" is: "<<point_list[i].stiffness[b]<<std::endl;
-                }        
+                    if (i.neighbours[j] == neighborsE[b]) K_factor += 1.0;
+                    if (i.Nr == neighborsE[b]) K_factor -= 1.0;
+
+                    i.stiffness[b] += psi.eps1eps2() * JI * K_factor;
+                }
             }
         }
     }
-} 
+}
+
 
 
 // Assemble residual or stiffness matrix
@@ -174,11 +161,10 @@ void assembly(const std::vector<Points>& point_list, int DOFs, Eigen::VectorXd& 
         // Assemble residual
         for (const auto& point : point_list) {
             double R_P = point.residual;
-            //std::cout<<"Nr: "<<point.Nr<<" R_P: "<<R_P<<std::endl; 
             double BCflg = point.BCflag;
-            size_t DOF = point.DOF;
+            int DOF = point.DOF;
             if (BCflg == 1) {
-                R[DOF - 1] += R_P; // Adjust for 1-based indexing
+                R(DOF - 1) += R_P; // Adjust for 1-based indexing
                 //std::cout << "[Residual] Added residual " << R_P << " at DOF " << DOF << " (Global Point ID: " << point.Nr << ")\n";
             }
         }
@@ -194,25 +180,21 @@ void assembly(const std::vector<Points>& point_list, int DOFs, Eigen::VectorXd& 
         // Assemble stiffness
         for (const auto& point : point_list) {
             double BCflg_p = point.BCflag;
-            double DOF_p = point.DOF;
-            size_t ii = DOF_p - 1;
+            int DOF_p = point.DOF;
 
-            if (BCflg_p == 1.0) {
+            if (BCflg_p == 1) {
                 // Create extended neighbor list including the point itself
                 std::vector<int> neighborsE = point.neighbours;
-                neighborsE.emplace_back(point.Nr);
+                neighborsE.push_back(point.Nr);
 
                 for (size_t q = 0; q < neighborsE.size(); q++) {
                     int nbr_idx = neighborsE[q];
                     double BCflg_q = point_list[nbr_idx].BCflag;
-                    double DOF_q = point_list[nbr_idx].DOF;
-                    size_t jj = DOF_q - 1;
+                    int DOF_q = point_list[nbr_idx].DOF;
 
-                    if (BCflg_q == 1.0) {
+                    if (BCflg_q == 1) {
                         double Kval = point.stiffness[q];
-                        double vv = Kval;
-                        triplets.emplace_back(ii, jj, vv);
-                        //triplets.emplace_back(jj, ii, vv);
+                        triplets.emplace_back(DOF_p - 1, DOF_q - 1, Kval);
                         //std::cout << "[Stiffness] K(" << DOF_p << "," << DOF_q << ") = " << Kval << " from Point " << point.Nr << " to Point " << nbr_idx << "\n";
                     }
                 }
@@ -223,12 +205,9 @@ void assembly(const std::vector<Points>& point_list, int DOFs, Eigen::VectorXd& 
         K.setFromTriplets(triplets.begin(), triplets.end());
 
         Eigen::MatrixXd A = Eigen::MatrixXd(K);
-        Eigen::MatrixXd symmetric_coeff = A - A.transpose();
+
         //std::cout << "\nStiffness matrix size: " << A.rows() << " x " << K.cols() << std::endl;
-        std::cout << "\nStiffness Matrix K:\n" << A << std::endl;
-        std::cout<<"Symmetric check: \n"<<symmetric_coeff<<std::endl;
-        //Eigen::SparseMatrix<double> K_sym = 0.5 * (K + Eigen::SparseMatrix<double>(K.transpose()));
-        //K = K_sym;
+        //std::cout << "\nStiffness Matrix K:\n" << A << std::endl;
     }
 }
 
@@ -245,16 +224,15 @@ void update_points(std::vector<Points>& point_list, double LF, Eigen::VectorXd& 
     else if (Update_flag == "Displacement") {
         for (auto& i : point_list) {
             if (i.BCflag == 1 && i.DOF > 0) {
-                i.x += dx(i.DOF - 1);
+                i.x = i.X + dx(i.DOF - 1);
             }
         }
     }
 
     // Update neighbor coordinates by directly accessing updated coordinates
     for (auto& point : point_list) {
-        //point.neighborsx.clear();
         for (size_t n = 0; n < point.neighbours.size(); n++) {
-            size_t nbr_idx = point.neighbours[n];
+            int nbr_idx = point.neighbours[n];
             point.neighborsx[n] = point_list[nbr_idx].x;
         }
     }
