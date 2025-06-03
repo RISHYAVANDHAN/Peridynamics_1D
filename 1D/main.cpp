@@ -55,7 +55,7 @@ int main() {
     double domain_size = 1.0;
     double delta = 0.301;
     double Delta = 0.1;
-    double d = 0.2;
+    double d = 0.75;
     int number_of_patches = 3;
     int number_of_right_patches = 1;
     double C1 = 0.5;
@@ -92,8 +92,8 @@ int main() {
     // Newton-Raphson setup
     int steps = 10;
     double load_step = (1.0 / steps);
-    double tol = 1e-10;
-    int max_try = 30;
+    double tol = 1e-6;
+    int max_try = 50;
     double LF = 0.0;
 
     std::cout << "======================================================" << std::endl;

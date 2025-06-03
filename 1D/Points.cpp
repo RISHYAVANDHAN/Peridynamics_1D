@@ -99,8 +99,7 @@ void neighbour_list(std::vector<Points>& point_list, double& delta)
 
 void calculate_rk(std::vector<Points>& point_list, double C1, double delta, double nn)
 {
-    constexpr double pi = 3.14159265358979323846;
-    double Vh = (4.0 / 3.0) * pi * std::pow(delta, 3);
+    double Vh = 2 * delta;
 
     for (auto& i : point_list)
     {
