@@ -11,7 +11,7 @@
 #include "Points.h"
 
 
-void write_vtk_1d(const std::vector<Points>& point_list, const std::string& filename) {
+void write_vtk_1d(const std::vector<Point>& point_list, const std::string& filename) {
     std::ofstream vtk_file(filename);
     if (!vtk_file.is_open()) {
         std::cerr << "Failed to open VTK file for writing: " << filename << std::endl;
@@ -40,7 +40,7 @@ void write_vtk_1d(const std::vector<Points>& point_list, const std::string& file
     vtk_file << "SCALARS BC int 1\n";
     vtk_file << "LOOKUP_TABLE default\n";
     for (const auto& point : point_list) {
-        vtk_file << point.BCflag << "\n";
+        vtk_file << point.BCflg << "\n";
     }
 
     vtk_file.close();
@@ -53,52 +53,83 @@ int main() {
 
     // Parameters
     double domain_size = 1.0;
-    double delta = 0.301;
-    double Delta = 0.1;
-    double d = 0.75;
-    int number_of_patches = 3;
-    int number_of_right_patches = 1;
+    double Delta = 0.301; // this piece of shit became Delta from delta
+    double L = 0.1; //little piece of shit renamed it as L, it was Delta previously, gonna fuck me up now
+    double d = 0.1;
+    int number_of_patches = 2;
+    int number_of_right_patches = 2;
     double C1 = 0.5;
     int DOFs = 0;
     int DOCs = 0;
     double nn = 2.0;
 
-    // Create mesh
-    std::vector<Points> points = mesh(domain_size, number_of_patches, Delta, number_of_right_patches, DOFs, DOCs, d);
-    std::cout << "Mesh contains " << points.size() << " points with " << DOFs << " DOFs\n";
-    neighbour_list(points, delta);
+    // 1. Compute corners
+    std::vector<double> Corners = Compute_Corners(domain_size);
 
+    // 2. Create mesh and patch
+    std::vector<double> NLtmp = Mesh(Corners, L);
+    std::vector<double> NLext = Patch(Corners, L, Delta);
+
+    std::vector<double> NL;
+    NL.insert(NL.end(), NLtmp.begin(), NLtmp.end());
+    NL.insert(NL.end(), NLext.begin(), NLext.end());
+    std::sort(NL.begin(), NL.end(), [](const double& a, const double& b) {
+        return a < b;
+    });
+
+    // 3. Create topology
+    std::vector<Point> PL = Topology(NL, L, Delta);
+
+    // 4. Assign neighbors
+    PL = AssignNgbrs(PL, L, Delta);
+
+    // 5. Assign volumes
+    PL = AssignVols(Corners, PL, L);
+
+    // 6. Output info
+    std::cout << "======================================================" << std::endl;
+    std::cout << "number of nodes                 : " << NL.size() << std::endl;
+    std::cout << "number of points                : " << PL.size() << std::endl;
+
+    // 7. Compute FF - done in Points.cpp, no need to do here
+    // 8. Assign boundary conditions and DOFs
+    auto bc_result = AssignBCs(Corners, PL, d);
+    PL = bc_result.first;
+    auto result = AssignGlobalDOF(PL);
+    PL = result.first;
+    DOFs = result.second;
+    std::cout << "number of DOFs                  : " << DOFs << std::endl;
+    std::cout << "======================================================" << std::endl;
+/*
     // Debugging the points and their neighbours
-    for (const auto& i : points) {
+    for (const auto& i : PL) {
         std::cout << "Nr: " << i.Nr << std::endl << "X: [";
         std::cout << i.X << ", 0, 0";
         std::cout << "]" << std::endl << "x: [" << i.x << ", 0, 0 ]" << std::endl;
-        std::cout << "Volume: " << i.volume << std::endl;
-        std::cout << "BC: " << i.BCflag << std::endl << "Flag: " << i.Flag << std::endl;
+        std::cout << "Volume: " << i.Vol << std::endl;
+        std::cout << "BC: " << i.BCflg <<" & Flag: "<<i.Flag<<std::endl;
         std::cout << "Neighbours of " << i.Nr << " are: [";
-        for (const auto& n : i.neighbours)
+        for (int j = 0; j < i.neighbors.size(); j++)
         {
             std::cout << "{ ";
-            std::cout << n << " ";
+            std::cout << i.neighbors[j] << " ";
             std::cout << "} ";
         }
         std::cout << "]";
-        std::cout << "\nNumber of neighbours for point " << i.Nr << ": " << i.n1 << std::endl;
+        std::cout << "\nNumber of neighbours for point " << i.Nr << ": " << i.NI << std::endl;
         std::cout << std::endl;
-    }
-
-    // Write initial mesh to VTK
+    }*/
 
     // Newton-Raphson setup
-    int steps = 10;
+    int steps = 100;
     double load_step = (1.0 / steps);
-    double tol = 1e-6;
+    double tol = 1e-12;
     int max_try = 50;
     double LF = 0.0;
 
     std::cout << "======================================================" << std::endl;
     std::cout << "Simulation Parameters:" << std::endl;
-    std::cout << "Domain Size: " << domain_size << " | Delta: " << Delta<< " | Horizon: " << delta << std::endl;
+    std::cout << "Domain Size: " << domain_size << " | Lattice Length / Delta: " << L<< " | Horizon: " << Delta << std::endl;
     std::cout << "Steps: " << steps << " | Load Step: " << load_step<< " | Tolerance: " << tol << std::endl;
     std::cout << "Material constant C1: " << C1 << std::endl;
     std::cout << "======================================================" << std::endl;
@@ -113,7 +144,7 @@ int main() {
         std::cout << "\nLoad Factor: " << LF << std::endl;
 
         // Apply prescribed displacements
-        update_points(points, LF, dx, "Prescribed");
+        update_points(PL, LF, dx, "Prescribed");
 
         int error_counter = 1;
         bool isNotAccurate = true;
@@ -123,9 +154,9 @@ int main() {
 
         // Newton-Raphson iteration
         while (isNotAccurate && error_counter <= max_try) {
-            calculate_rk(points, C1, delta, nn);
+            calculate_rk(PL, C1, Delta, nn);
 
-            assembly(points, DOFs, R, K, "residual");
+            assembly(PL, DOFs, R, K, "residual");
 
             double residual_norm = R.norm();
             if (error_counter == 1) {
@@ -142,7 +173,7 @@ int main() {
                 }
             }
 
-            assembly(points, DOFs, R, K, "stiffness");
+            assembly(PL, DOFs, R, K, "stiffness");
 
             Eigen::ConjugateGradient<Eigen::SparseMatrix<double>> solver;
             solver.compute(K);
@@ -153,7 +184,7 @@ int main() {
                 std::cout << "Linear Solver failed to converge in this iteration!" << std::endl;
             }
 
-            update_points(points, LF, dx, "Displacement");
+            update_points(PL, LF, dx, "Displacement");
             error_counter++;
             
         }
@@ -162,10 +193,11 @@ int main() {
         LF += load_step;
 
         // Output current state
-        for (const auto& p : points) {
+        for (const auto& p : PL) {
             //std::cout << "Point " << p.Nr << ": x = " << p.x << ", displacement = " << (p.x - p.X) << std::endl;
         }
     }
 
+    
     return 0;
 }
