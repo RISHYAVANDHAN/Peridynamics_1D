@@ -194,7 +194,7 @@ int main() {
 
         // Output current state
         for (const auto& p : PL) {
-            //std::cout << "Point " << p.Nr << ": x = " << p.x << ", displacement = " << (p.x - p.X) << std::endl;
+            std::cout << "Point " << p.Nr << ": x = " << p.x << ", displacement = " << (p.x - p.X) << std::endl;
         }
     }
 

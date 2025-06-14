@@ -191,7 +191,7 @@ std::vector<Point> AssignVols(const std::vector<double>& Corners, std::vector<Po
 std::vector<Point> SetMaterial(const std::vector<Point>& inp, double L, double Delta, double& MatPars) {
     std::vector<Point> PL = inp;
     
-    int NoPs = 0;
+    int NoPs = PL.size();
     for (int p = 0; p < NoPs; p++) {
         int mat = 1; // Matlab uses 1-based indexing
         
@@ -248,10 +248,10 @@ std::pair<std::vector<Point>, int> AssignGlobalDOF(std::vector<Point> PL) {
 }
 
 // 9th function: [ PL , DOFs ] = AssignBCs( Corners , PL , FF );
-std::pair<std::vector<Point>, int> AssignBCs(const std::vector<double>& Corners, std::vector<Point> PL, const double& FF) {
+std::pair<std::vector<Point>, int> AssignBCs(const std::vector<double>& Corners, std::vector<Point> PL, const double& d) {
     int NoPs = PL.size();
     int PD = PL[0].PD;
-    
+    double FF = 1.0 + d;
     double A = Corners[0]; // bottom left
     double B = Corners[1]; // bottom right
     
@@ -281,10 +281,8 @@ std::pair<std::vector<Point>, int> AssignBCs(const std::vector<double>& Corners,
         }
         else
         {
-            double BCval = 0.0;
-                        
             //PL[i].BCflg = BCflg;
-            PL[i].BCval = BCval;
+            PL[i].BCval = (FF * X) - X;
             PL[i].Flag = "Point";
         }
     }
