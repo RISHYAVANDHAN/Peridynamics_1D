@@ -282,7 +282,7 @@ std::pair<std::vector<Point>, int> AssignBCs(const std::vector<double>& Corners,
         else
         {
             //PL[i].BCflg = BCflg;
-            PL[i].BCval = (FF * X) - X;
+            PL[i].BCval = 0.0;
             PL[i].Flag = "Point";
         }
     }
