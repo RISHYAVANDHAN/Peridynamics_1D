@@ -421,7 +421,7 @@ void update_points(std::vector<Point>& PL, double LF, Eigen::VectorXd& dx, const
     else if (Update_flag == "Displacement") {
         for (int i = 0; i < NoPs; i++) {
             if (PL[i].BCflg == 1 && PL[i].DOF > 0) {
-                PL[i].x =+ dx(PL[i].DOF - 1);
+                PL[i].x += dx(PL[i].DOF - 1);
             }
         }
     }

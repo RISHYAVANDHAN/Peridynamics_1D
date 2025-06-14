@@ -177,7 +177,7 @@ int main() {
 
             Eigen::ConjugateGradient<Eigen::SparseMatrix<double>> solver;
             solver.compute(K);
-            dx += solver.solve(-R);
+            dx = solver.solve(-R);
 
             if(solver.info() != Eigen::Success)
             {
