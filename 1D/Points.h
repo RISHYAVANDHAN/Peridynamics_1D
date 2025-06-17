@@ -33,12 +33,16 @@ public:
     int BCflg;
     double BCval;
     int DOF;
+    int DOC;
     std::string Flag;
     double psi;
     double residual;
     std::vector<double> stiffness;
+    double ReactionForce;
+    std::vector<double> Forceval;
+    int ForceFlg;
+    double ForceMag;
 
-    
     // Constructor
     Point(int id, const double& position) : Nr(id), X(position) {
         PD = 1;
@@ -50,9 +54,12 @@ public:
         L = 0.0;
         Delta = 0.0;
         Mat = 0;
+        Forceval = {0.0};
+        ForceMag = 0.0;
+        ForceFlg = 0;
     }
     
-    Point() : Nr(0), PD(0), NI(0), NInII(0), AV(0.0), Vol(0.0), L(0.0), Delta(0.0), Mat(0), Flag("") {}
+    Point() : Nr(0), PD(0), NI(0), NInII(0), AV(0.0), Vol(0.0), L(0.0), Delta(0.0), Mat(0), Flag(""), Forceval({0.0}), ForceFlg(0), ForceMag(0.0) {}
 };
 
 std::vector<double> Compute_Corners(double SiZe);
@@ -63,11 +70,13 @@ std::vector<Point> Topology(const std::vector<double>& NL, double L, double Delt
 std::vector<Point> AssignNgbrs(std::vector<Point> PL, double L, double Delta) ;
 std::vector<Point> AssignVols(const std::vector<double>& Corners, std::vector<Point> PL, double L) ;
 std::vector<Point> SetMaterial(const std::vector<Point>& inp, double L, double Delta, double& MatPars) ;
-std::pair<std::vector<Point>, int> AssignGlobalDOF(std::vector<Point> PL) ;
-std::pair<std::vector<Point>, int> AssignBCs(const std::vector<double>& Corners, std::vector<Point> PL, const double& FF) ;
+std::pair<std::vector<Point>, int> AssignGlobalDOF(std::vector<Point> PL, int& DOCs_out) ;
+std::pair<std::vector<Point>, int> AssignBCs(const std::vector<double>& Corners, std::vector<Point> PL, const double& FF,
+    const std::vector<int>& force_nodes, const std::vector<double>& Forces) ;
 void calculate_rk(std::vector<Point>& point_list, double C1, double delta, double nn);
-void assembly(const std::vector<Point>& point_list, int DOFs, Eigen::VectorXd& R, Eigen::SparseMatrix<double>& K, const std::string& flag);
-void update_points(std::vector<Point>& point_list, double LF, Eigen::VectorXd& dx, const std::string& Update_flag);
-
+void assembly(const std::vector<Point>& point_list, int DOFs, int DOCs, Eigen::VectorXd& R, Eigen::SparseMatrix<double>& K
+    , Eigen::SparseMatrix<double>& Kuu, Eigen::SparseMatrix<double>& Kpu, Eigen::SparseMatrix<double>& Kpp, const std::string& flag);
+void update_points(std::vector<Point>& point_list, double LF, Eigen::VectorXd& dx, const std::string& Update_flag,
+    const std::vector<double>& Forces);
 
 #endif //POINTS_H
