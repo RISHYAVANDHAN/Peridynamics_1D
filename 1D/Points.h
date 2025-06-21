@@ -65,18 +65,16 @@ public:
 std::vector<double> Compute_Corners(double SiZe);
 std::vector<double> Mesh(const std::vector<double>& Corners, double L) ;
 bool PatchNode(const double& node, const std::vector<double>& Corners) ;
-std::vector<double> Patch(const std::vector<double>& Corners, double L, double Delta) ;
+std::vector<double> Patch(const std::vector<double>& Corners, double L, int number_of_left_patches, int number_of_right_patches) ;
 std::vector<Point> Topology(const std::vector<double>& NL, double L, double Delta) ;
 std::vector<Point> AssignNgbrs(std::vector<Point> PL, double L, double Delta) ;
 std::vector<Point> AssignVols(const std::vector<double>& Corners, std::vector<Point> PL, double L) ;
 std::vector<Point> SetMaterial(const std::vector<Point>& inp, double L, double Delta, double& MatPars) ;
 std::pair<std::vector<Point>, int> AssignGlobalDOF(std::vector<Point> PL, int& DOCs_out) ;
-std::pair<std::vector<Point>, int> AssignBCs(const std::vector<double>& Corners, std::vector<Point> PL, const double& FF,
-    const std::vector<int>& force_nodes, const std::vector<double>& Forces) ;
+std::pair<std::vector<Point>, int> AssignBCs(const std::vector<double>& Corners, std::vector<Point> PL, const double& FF) ;
 void calculate_rk(std::vector<Point>& point_list, double C1, double delta, double nn);
 void assembly(const std::vector<Point>& point_list, int DOFs, int DOCs, Eigen::VectorXd& R, Eigen::SparseMatrix<double>& K
     , Eigen::SparseMatrix<double>& Kuu, Eigen::SparseMatrix<double>& Kpu, Eigen::SparseMatrix<double>& Kpp, const std::string& flag);
-void update_points(std::vector<Point>& point_list, double LF, Eigen::VectorXd& dx, const std::string& Update_flag,
-    const std::vector<double>& Forces);
+void update_points(std::vector<Point>& point_list, double LF, Eigen::VectorXd& dx, const std::string& Update_flag);
 
 #endif //POINTS_H

@@ -62,14 +62,12 @@ int main() {
     int DOFs = 0;
     int DOCs = 0;
     double nn = 2.0;
-    std::vector<double> Forces = {0.3,0.3,0.3};
-    std::vector<int> Force_nodes = {14,15,16};
     // 1. Compute corners
     std::vector<double> Corners = Compute_Corners(domain_size);
 
     // 2. Create mesh and patch
     std::vector<double> NLtmp = Mesh(Corners, L);
-    std::vector<double> NLext = Patch(Corners, L, Delta);
+    std::vector<double> NLext = Patch(Corners, L, number_of_patches, number_of_right_patches);
 
     std::vector<double> NL;
     NL.insert(NL.end(), NLtmp.begin(), NLtmp.end());
@@ -94,7 +92,7 @@ int main() {
 
     // 7. Compute FF - done in Points.cpp, no need to do here
     // 8. Assign boundary conditions and DOFs
-    auto bc_result = AssignBCs(Corners, PL, d, Force_nodes, Forces);
+    auto bc_result = AssignBCs(Corners, PL, d);
     PL = bc_result.first;
     auto result = AssignGlobalDOF(PL, DOCs);
     PL = result.first;
@@ -129,7 +127,7 @@ int main() {
     int steps = 100;
     double load_step = (1.0 / steps);
     double tol = 1e-12;
-    int max_try = 30;
+    int max_try = 50;
     double LF = 0.0;
 
     std::cout << "======================================================" << std::endl;
@@ -154,7 +152,7 @@ int main() {
         std::cout << "\nLoad Factor: " << LF << std::endl;
 
         // Apply prescribed displacements
-        update_points(PL, LF, dx, "Prescribed", Forces);
+        update_points(PL, LF, dx, "Prescribed");
 
         int error_counter = 1;
         bool isNotAccurate = true;
@@ -167,7 +165,6 @@ int main() {
             calculate_rk(PL, C1, Delta, nn);
 
             assembly(PL, DOFs, DOCs,R, K, Kuu, Kpu, Kpp,"residual");
-
             double residual_norm = R.norm();
             if (error_counter == 1) {
                 normnull = std::max(residual_norm, 1e-10);
@@ -195,16 +192,25 @@ int main() {
                 std::cout << "Linear Solver failed to converge in this iteration!" << std::endl;
             }
 
-            update_points(PL, LF, dx, "Displacement", Forces);
+            update_points(PL, LF, dx, "Displacement");
 
-            Eigen::VectorXd u_free = dx.head(DOFs);
+            Eigen::VectorXd u_free(DOFs);
             Eigen::VectorXd u_prescribed = Eigen::VectorXd::Zero(DOCs);
             for (const auto& p : PL) {
+                if (p.BCflg == 1 && p.DOF > 0) {
+                    u_free(p.DOF - 1) = p.x - p.X;  // total displacement
+                }
                 if (p.BCflg == 0 && p.DOC > 0) {
                     u_prescribed(p.DOC - 1) = p.BCval * LF;
                 }
             }
 
+            //std::cout << "\n Kpu matrix: " << dx << std::endl;
+            //std::cout << "\n Kpu matrix: " << Kpu << std::endl;
+            //std::cout << "\n free matrix: " << u_free << std::endl;
+
+            //std::cout << "\n prescribed matrix: " << u_prescribed << std::endl;
+            //std::cout << "\nprescribed matrix size: " << u_prescribed.rows() << " x " << u_prescribed.cols() << std::endl;
             // Calculate reactions before updating positions
             f_reaction = -(Kpu * u_free + Kpp * u_prescribed);
 
@@ -219,7 +225,7 @@ int main() {
             std::cout << "Point " << p.Nr << ": x = " << p.x << ", displacement = " << (p.x - p.X) << std::endl;
             if (p.BCflg == 0 && p.DOC > 0){
                 std::cout << "Point " << p.Nr << " (X = " << p.X << "): "
-                      << "Reaction = " << f_reaction(idx) << std::endl;
+                     << "Reaction = " << f_reaction(idx) << std::endl;
                 idx++;
             }
 

@@ -60,31 +60,21 @@ bool PatchNode(const double& node, const std::vector<double>& Corners) {
 }
 
 // 3rd function: [ NLext ] = Patch( Corners , L , Delta );
-std::vector<double> Patch(const std::vector<double>& Corners, double L, double Delta) {    
-    double v = round(Delta / L) * L;
-    
-    int count = 0;
-    
-    std::vector<double> Corners_mod(2);
-    
-    Corners_mod[0] = Corners[0] + v * (-1); // left south corner
-    Corners_mod[1] = Corners[1] + v * (1);  // right south corner
-    
-    std::vector<double> NLtmp = Mesh(Corners_mod, L);
-    
-    int NoNs = NLtmp.size();
-    
+std::vector<double> Patch(const std::vector<double>& Corners, double L, int number_of_left_patches, int number_of_right_patches) {
+
     std::vector<double> NL;
     
-    for (int i = 0; i < NoNs; i++) {
-        double node = NLtmp[i];
-        
-        if (PatchNode(node, Corners)) {
-            count = count + 1;
-            NL.emplace_back(node);
-        }
+    // Left patch
+    for (int i = number_of_left_patches; i >= 1; --i) {
+        double node = Corners[0] - i * L;
+        NL.push_back(node);
     }
-    
+    // Right patch
+    for (int i = 1; i <= number_of_right_patches; ++i) {
+        double node = Corners[1] + i * L;
+        NL.push_back(node);
+    }
+
     return NL;
 }
 
@@ -244,8 +234,7 @@ std::pair<std::vector<Point>, int> AssignGlobalDOF(std::vector<Point> PL, int& D
 }
 
 // 9th function: [ PL , DOFs ] = AssignBCs( Corners , PL , FF );
-std::pair<std::vector<Point>, int> AssignBCs(const std::vector<double>& Corners, std::vector<Point> PL, const double& d,
-    const std::vector<int>& force_nodes, const std::vector<double>& Forces) {
+std::pair<std::vector<Point>, int> AssignBCs(const std::vector<double>& Corners, std::vector<Point> PL, const double& d) {
     int NoPs = PL.size();
     int PD = PL[0].PD;
     double FF = 1.0 + d;
@@ -253,30 +242,13 @@ std::pair<std::vector<Point>, int> AssignBCs(const std::vector<double>& Corners,
     double B = Corners[1]; // bottom right
     int dummy_DOCs = 0;
     PL = FreeAllPoints(PL);
-    if (force_nodes.size() != Forces.size()) {
-        std::cerr << "Error: force_nodes and forces vectors must be the same size\n";
-        return AssignGlobalDOF(PL, dummy_DOCs);
-    }
-    std::unordered_map<int, double> force_map;
-    for (size_t i = 0; i < force_nodes.size(); i++) {
-        force_map[force_nodes[i]] = Forces[i];
 
-    }
     double tol = 1e-6;
     int idx = 0;
     for (int i = 0; i < NoPs; i++) {
         double X = PL[i].X;
-        if (force_map.count(PL[i].Nr))
-         {
-             PL[i].ForceFlg = 1;
-             PL[i].ForceMag  = force_map[PL[i].Nr];
-             PL[i].Forceval[0] = 0.0;    // Will be set during loading
-             PL[i].BCflg        = 1;        // FREE dof
-             PL[i].BCval     = 0.0;      // no prescribed displacement
-             PL[i].Flag      = "ForceNode";
-         }
 
-        if ((X < 0.0) && PL[i].ForceFlg != 1) {
+        if ((X < 0.0)) {
             int BCflg = 0;
             double BCval = 0.0;
                         
@@ -284,7 +256,7 @@ std::pair<std::vector<Point>, int> AssignBCs(const std::vector<double>& Corners,
             PL[i].BCval = BCval;
             PL[i].Flag = "Patch";
         }
-        else if ((X > 1.0) && PL[i].ForceFlg != 1)
+        else if ((X > 1.0))
         {
             int BCflg = 0;
             double BCval = (FF * X) - X;
@@ -294,7 +266,7 @@ std::pair<std::vector<Point>, int> AssignBCs(const std::vector<double>& Corners,
             PL[i].Flag = "Right Patch";
             idx++;
         }
-        else if ((X > 0.0 || X < 1.0) && PL[i].ForceFlg != 1)
+        else if ((X > 0.0 || X < 1.0))
         {
             //PL[i].BCflg = BCflg;
             PL[i].BCval = 0.0;
@@ -353,12 +325,6 @@ void calculate_rk(std::vector<Point>& PL, double C1, double delta, double nn)
                 }
             }
         }
-        if (PL[i].ForceFlg == 1) {
-            //std::cout << "Node " << PL[i].Nr << " pre-force residual: " << PL[i].residual
-            //          << ", applying force: " << PL[i].Forceval[0] << std::endl;
-            //std::cin.get();
-            PL[i].residual -= PL[i].Forceval[0];
-        }
     }
 }
 
@@ -390,31 +356,21 @@ void assembly(const std::vector<Point>& point_list, int DOFs, int DOCs, Eigen::V
         K.setZero();
         std::vector<Eigen::Triplet<double>> triplets;
 
-        // Assemble stiffness
         for (const auto& point : point_list) {
-            double BCflg_p = point.BCflg;
-            int DOF_p = point.DOF;
+            std::vector<int> neighborsE = point.neighbors;
+            neighborsE.push_back(point.Nr);
 
-            if (BCflg_p == 1) {
-                // Create extended neighbor list including the point itself
-                std::vector<int> neighborsE = point.neighbors;
-                neighborsE.push_back(point.Nr);
+            for (size_t q = 0; q < neighborsE.size(); ++q) {
+                int nbr_idx = neighborsE[q];
+                double Kval = point.stiffness[q];
 
-                for (size_t q = 0; q < neighborsE.size(); q++) {
-                    int nbr_idx = neighborsE[q];
-                    double BCflg_q = point_list[nbr_idx].BCflg;
-                    int DOF_q = point_list[nbr_idx].DOF;
-
-                    if (BCflg_q == 1) {
-                        double Kval = point.stiffness[q];
-                        triplets.emplace_back(DOF_p - 1, DOF_q - 1, Kval);
-                        //std::cout << "[Stiffness] K(" << DOF_p << "," << DOF_q << ") = " << Kval << " from Point " << point.Nr << " to Point " << nbr_idx << "\n";
-                    }
-                }
+                // Use actual point index (i.e., row = point.Nr)
+                triplets.emplace_back(point.Nr, nbr_idx, Kval);
             }
         }
 
-        K.resize(DOFs+DOCs, DOFs+DOCs);
+        int N = point_list.size();
+        K.resize(N, N);
         K.setFromTriplets(triplets.begin(), triplets.end());
 
         Eigen::MatrixXd A = Eigen::MatrixXd(K);
@@ -425,13 +381,11 @@ void assembly(const std::vector<Point>& point_list, int DOFs, int DOCs, Eigen::V
         std::vector<int> unknown_indices;     // free DOFs
         std::vector<int> prescribed_indices;  // constrained DOFs
 
-        for (const auto& point : point_list) {
-
-                if (point.BCflg == 1)
-                    unknown_indices.push_back(point.DOF - 1);
-                else if (point.BCflg == 0)
-                    prescribed_indices.push_back(point.DOF + point.DOC - 1);
-
+        for (int i = 0; i < point_list.size(); ++i) {
+            if (point_list[i].BCflg == 1)
+                unknown_indices.push_back(i);         // global matrix row = i
+            else if (point_list[i].BCflg == 0)
+                prescribed_indices.push_back(i);      // global matrix row = i
         }
 
         int Nu = unknown_indices.size();
@@ -460,18 +414,18 @@ void assembly(const std::vector<Point>& point_list, int DOFs, int DOCs, Eigen::V
         Kuu.setFromTriplets(Kuu_trips.begin(), Kuu_trips.end());
         Kpu.setFromTriplets(Kpu_trips.begin(), Kpu_trips.end());
         Kpp.setFromTriplets(Kpp_trips.begin(), Kpp_trips.end());
+
+        //std::cout << "\nStiffness Matrix Kpu:\n" << Kpu << std::endl;
+        //std::cout << "\nStiffness Matrix Kpp:\n" << Kpp << std::endl;
     }
 }
 // Update points based on displacement or prescribed values
-void update_points(std::vector<Point>& PL, double LF, Eigen::VectorXd& dx, const std::string& Update_flag, const std::vector<double>& Forces)
+void update_points(std::vector<Point>& PL, double LF, Eigen::VectorXd& dx, const std::string& Update_flag)
 {
     int NoPs = PL.size();
     if (Update_flag == "Prescribed") {
         for (int i = 0; i < NoPs; i++) {
-            if (PL[i].ForceFlg == 1){
-                PL[i].Forceval[0] = LF * PL[i].ForceMag;
-            }
-            if (PL[i].BCflg == 0 && PL[i].ForceFlg != 1) {
+            if (PL[i].BCflg == 0) {
                 PL[i].x = PL[i].X + (LF * PL[i].BCval);
             }
         }
