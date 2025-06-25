@@ -58,18 +58,21 @@ int main() {
     // Parameters
     int PD = 1;
     double domain_size = 1.0;
-    double Delta = 0.301;                       // this piece of shit became Delta from delta
-    double L = 0.1;                             // renamed it as L, it was Delta previously
-    double d = 0.1;
+    double Delta = 0.301;                           // this piece of shit became Delta from delta
+    double L = 0.1;                                 // renamed it as L, it was Delta previously
+    double d = 0.1;                                 // Magnitude of deformation, for displacement precription
+    double F_ext = 0.1;                             // Prescribing External force
+    double C1 = 0.5;                                // Material Constant
+
     int number_of_patches = 2;
     int number_of_right_patches = 2;
-    double C1 = 0.5;
+
     int DOFs = 0;
     int DOCs = 0;
     double nn = 2.0;
     double Force = 10.0;
     std::string DEFflag = "EXT";
-    std::string Prescribed_Flag = "Displacement";
+    std::string Prescribed_Flag = "Displacement";   // This flag is to see if we´re prescribing "Force" or "Displacement".  
 
     // 1. Compute corners
     std::vector<double> Corners = Compute_Corners(domain_size);
@@ -96,30 +99,29 @@ int main() {
 
     // 6. Output info
     std::cout << "======================================================" << std::endl;
-    std::cout << "number of nodes                 : " << NL.size() << std::endl;
-    std::cout << "number of points                : " << PL.size() << std::endl;
+    std::cout << "Number of nodes                 : " << NL.size() << std::endl;
+    std::cout << "Number of points                : " << PL.size() << std::endl;
 
     // 7. Compute FF - done in Points.cpp, no need to do here
     // 8. Assign boundary conditions and DOFs
     double FF = Compute_FF(PD, d, DEFflag);
-    auto bc_result = AssignBCs(Corners, PL, FF);
+    auto bc_result = AssignBCs(Corners, PL, FF, Prescribed_Flag);
     PL = bc_result.first;
     auto result = AssignGlobalDOF(PL);
     PL = result.first;
     DOFs = result.second;
-    std::cout << "number of DOFs                  : " << DOFs << std::endl;
+    std::cout << "Number of DOFs                  : " << DOFs << std::endl;
     std::cout << "======================================================" << std::endl;
 
     /////////////////////////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////// NEWTON - RAPHSON SOLVER ///////////////////////////////////////
     /////////////////////////////////////////////////////////////////////////////////////////////////
     
-
     // Newton-Raphson setup
-    int steps = 100;
+    int steps = 10;
     double load_step = (1.0 / steps);
     double tol = 1e-12;
-    int max_try = 50;
+    int max_try = 10;
     double LF = 0.0;
     double F_rec_patch, F_rec_rightpatch = 0; // this is the reaction force on the right patch after getting displaced.
 
@@ -140,11 +142,12 @@ int main() {
         std::cout << "\nLoad Factor: " << LF << std::endl;
 
         // Apply prescribed displacements
-        update_points(PL, LF, dx, "Prescribed");
+        update_points(PL, LF, dx, Prescribed_Flag,F_ext); // So, now its either force or displacement.
 
         int error_counter = 1;
         bool isNotAccurate = true;
         double normnull = 0.0;
+        double F_rec_patch, F_rec_rightpatch = 0; // this is the reaction force on the right patch after getting displaced.
 
         dx.setZero();
 
@@ -160,7 +163,7 @@ int main() {
                 std::cout << "Initial Residual Norm: " << residual_norm << std::endl;
             } else {
                 double rel_norm = residual_norm / normnull;
-                std::cout << "Iter " << error_counter << ": Residual Norm = " << residual_norm << ", Relative = " << rel_norm << std::endl;
+                std::cout << "Iter " << error_counter << ":\t Residual Norm = " << residual_norm << ",\t Relative = " << rel_norm << std::endl;
                 if (rel_norm < tol || residual_norm < tol) {
                     isNotAccurate = false;
                 }
@@ -177,7 +180,7 @@ int main() {
                 std::cout << "Linear Solver failed to converge in this iteration!" << std::endl;
             }
 
-            update_points(PL, LF, dx, "Displacement");
+            update_points(PL, LF, dx, "Calculated", F_ext);
             for(int i = 0; i < PL.size(); i++)
             {
                 if((PL[i].DOC != 0) && (PL[i].Flag == "Right Patch"))
@@ -191,7 +194,7 @@ int main() {
             }
             std::cout<<"Reaction Force on the RIGHT PATCH at Load Factor    : "<< LF << " is : "<< F_rec_rightpatch <<std::endl;
             std::cout<<"Reaction Force on the PATCH at Load Factor          : "<< LF << " is : "<< F_rec_patch <<std::endl;
-            std::cout<<"Total Reaction force = Rightpatch - Patch" << (F_rec_rightpatch - F_rec_patch)<< std::endl<< std::endl;
+            std::cout<<"Total Reaction force = Patch - Right Patch = " << (F_rec_patch - F_rec_rightpatch)<< std::endl<< std::endl;
  
             if(isNotAccurate == false) std::cout << "Converged after " << error_counter << " iterations." << std::endl<< std::endl;
             error_counter++;

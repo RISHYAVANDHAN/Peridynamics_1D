@@ -38,12 +38,13 @@ public:
     double psi;
     double residual;
     std::vector<double> stiffness;
+    double F_ext;
 
     
     // Constructor
     Point(int id, const double& position) : Nr(id), X(position) {
         PD = 1;
-        x = X; // assuming x is same as X initially
+        x = X; // assuming x is same as X initially (it is, just in case)
         NI = 0;
         NInII = 0;
         AV = 0.0;
@@ -51,6 +52,7 @@ public:
         L = 0.0;
         Delta = 0.0;
         Mat = 0;
+        F_ext = 0.0;
     }
     
     Point() : Nr(0), PD(0), NI(0), NInII(0), AV(0.0), Vol(0.0), L(0.0), Delta(0.0), Mat(0), Flag("") {}
@@ -63,13 +65,12 @@ std::vector<double> Patch(const std::vector<double>& Corners, double L, double D
 std::vector<Point> Topology(const std::vector<double>& NL, double L, double Delta) ;
 std::vector<Point> AssignNgbrs(std::vector<Point> PL, double L, double Delta) ;
 std::vector<Point> AssignVols(const std::vector<double>& Corners, std::vector<Point> PL, double L) ;
-std::vector<Point> SetMaterial(const std::vector<Point>& inp, double L, double Delta, double& MatPars) ;
+std::vector<Point> SetMaterial(std::vector<Point>& PL, double L, double Delta, double& MatPars) ;
 double Compute_FF(int PD, double d, const std::string& DEFflag) ;
 std::pair<std::vector<Point>, int> AssignGlobalDOF(std::vector<Point> PL) ;
-std::pair<std::vector<Point>, int> AssignBCs(const std::vector<double>& Corners, std::vector<Point> PL, const double& FF) ;
+std::pair<std::vector<Point>, int> AssignBCs(const std::vector<double>& Corners, std::vector<Point> PL, const double& FF, std::string& Prescribed_Flag);
 void calculate_rk(std::vector<Point>& point_list, double C1, double delta, double nn);
 void assembly(const std::vector<Point>& point_list, int DOFs, Eigen::VectorXd& R, Eigen::SparseMatrix<double>& K, const std::string& flag);
-void update_points(std::vector<Point>& point_list, double LF, Eigen::VectorXd& dx, const std::string& Update_flag);
-
+void update_points(std::vector<Point>& PL, double LF, Eigen::VectorXd& dx, const std::string& Update_flag, double F_tot);
 
 #endif //POINTS_H

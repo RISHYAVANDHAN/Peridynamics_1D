@@ -188,12 +188,12 @@ std::vector<Point> AssignVols(const std::vector<double>& Corners, std::vector<Po
 }
 
 // 7th function: [ PL ] = SetMaterial( PL , L , Delta , MATpars );
-std::vector<Point> SetMaterial(const std::vector<Point>& inp, double L, double Delta, double& MatPars) {
-    std::vector<Point> PL = inp;
+// at the moment, i´m not entirely sure of this mf, but for 1D it shouldnt hurt as C1 doesnt really matter in 1D
+std::vector<Point> SetMaterial(std::vector<Point>& PL, double L, double Delta, double& MatPars) {
     
     int NoPs = PL.size();
     for (int p = 0; p < NoPs; p++) {
-        int mat = 1; // Matlab uses 1-based indexing
+        int mat = 1; 
         
         PL[p].L = L;
         PL[p].Delta = Delta;
@@ -253,12 +253,15 @@ std::pair<std::vector<Point>, int> AssignGlobalDOF(std::vector<Point> PL) {
 }
 
 // 9th function: [ PL , DOFs ] = AssignBCs( Corners , PL , FF );
-std::pair<std::vector<Point>, int> AssignBCs(const std::vector<double>& Corners, std::vector<Point> PL, const double& FF) {
+std::pair<std::vector<Point>, int> AssignBCs(const std::vector<double>& Corners, std::vector<Point> PL, const double& FF, std::string& Prescribed_Flag) 
+{
     int NoPs = PL.size();
     double A = Corners[0]; // bottom left
     double B = Corners[1]; // bottom right
 
     PL = FreeAllPoints(PL);
+    int BCflg;
+    double BCval;
     
     double tol = 1e-6;
     
@@ -266,17 +269,20 @@ std::pair<std::vector<Point>, int> AssignBCs(const std::vector<double>& Corners,
         double X = PL[i].X;
         
         if ((X < 0.0)) {
-            int BCflg = 0;
-            double BCval = 0.0;
-                        
-            PL[i].BCflg = BCflg;
-            PL[i].BCval = BCval;
+            PL[i].BCflg = 0;                        // Fixed BC
+            PL[i].BCval = 0.0;
             PL[i].Flag = "Patch";
         }
         else if ((X > 1.0))
         {
-            int BCflg = 0;
-            double BCval = (FF * X) - X;
+            if(Prescribed_Flag == "Displacement"){  // Fixed BC
+                BCflg = 0;
+                BCval = (FF * X) - X;
+            }
+            else if (Prescribed_Flag == "Force"){   // Free BC
+                BCflg = 1;
+                BCval = 0;
+            }
                         
             PL[i].BCflg = BCflg;
             PL[i].BCval = BCval;
@@ -284,7 +290,7 @@ std::pair<std::vector<Point>, int> AssignBCs(const std::vector<double>& Corners,
         }
         else
         {
-            //PL[i].BCflg = BCflg;
+            PL[i].BCflg = 1;                        // Free BC
             PL[i].BCval = 0.0;
             PL[i].Flag = "Point";
         }
@@ -332,7 +338,12 @@ void calculate_rk(std::vector<Point>& PL, double C1, double delta, double nn)
                 hyperdual psi = 0.5 * C1 * LL * s * s;
 
                 PL[i].psi += psi.real();
-                PL[i].residual += psi.eps1() * JI;
+                PL[i].residual += ((psi.eps1() * JI));
+                PL[i].residual -= PL[i].F_ext;
+                // For simple displacement prescription, this F_ext is 0, so it won´t change anything; 
+                // But when the force is prescribed, this F_ext is non-zero for  Right patch points
+                // As its rewritten in the update function below. So, we can use this for both implementations
+                // Prescribed displacement and prescribed force.
 
                 for (int b = 0; b < NNgbrE; b++) {
                     double K_factor = 0.0;
@@ -409,17 +420,24 @@ void assembly(const std::vector<Point>& point_list, int DOFs, Eigen::VectorXd& R
 }
 
 // Update points based on displacement or prescribed values
-void update_points(std::vector<Point>& PL, double LF, Eigen::VectorXd& dx, const std::string& Update_flag)
+void update_points(std::vector<Point>& PL, double LF, Eigen::VectorXd& dx, const std::string& Update_flag, double F_tot)
 {
     int NoPs = PL.size();
-    if (Update_flag == "Prescribed") {
+    if (Update_flag == "Displacement") {
         for (int i = 0; i < NoPs; i++) {
-            if (PL[i].BCflg == 0) {
+            if (PL[i].Flag == "Right Patch") {
                 PL[i].x = PL[i].X + (LF * PL[i].BCval);
             }
         }
     }
-    else if (Update_flag == "Displacement") {
+    else if(Update_flag == "Force"){
+        for (int i = 0; i < NoPs; i++) {
+            if (PL[i].Flag == "Right Patch") {
+                PL[i].F_ext = (LF * F_tot);
+            }
+        }
+    }
+    else if (Update_flag == "Calculated") {
         for (int i = 0; i < NoPs; i++) {
             if (PL[i].BCflg == 1 && PL[i].DOF > 0) {
                 PL[i].x += dx(PL[i].DOF - 1);
