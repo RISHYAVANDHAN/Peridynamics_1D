@@ -4,7 +4,6 @@
 #include <algorithm>
 #include <string>
 #include <iostream>
-#include <unordered_map>
 #include <Eigen/Sparse>
 #include "hyperdual.h"
 #include "Points.h"
@@ -60,21 +59,31 @@ bool PatchNode(const double& node, const std::vector<double>& Corners) {
 }
 
 // 3rd function: [ NLext ] = Patch( Corners , L , Delta );
-std::vector<double> Patch(const std::vector<double>& Corners, double L, int number_of_left_patches, int number_of_right_patches) {
-
+std::vector<double> Patch(const std::vector<double>& Corners, double L, double Delta) {    
+    double v = round(Delta / L) * L;
+    
+    int count = 0;
+    
+    std::vector<double> Corners_mod(2);
+    
+    Corners_mod[0] = Corners[0] + v * (-1); // left south corner
+    Corners_mod[1] = Corners[1] + v * (1);  // right south corner
+    
+    std::vector<double> NLtmp = Mesh(Corners_mod, L);
+    
+    int NoNs = NLtmp.size();
+    
     std::vector<double> NL;
     
-    // Left patch
-    for (int i = number_of_left_patches; i >= 1; --i) {
-        double node = Corners[0] - i * L;
-        NL.push_back(node);
+    for (int i = 0; i < NoNs; i++) {
+        double node = NLtmp[i];
+        
+        if (PatchNode(node, Corners)) {
+            count = count + 1;
+            NL.emplace_back(node);
+        }
     }
-    // Right patch
-    for (int i = 1; i <= number_of_right_patches; ++i) {
-        double node = Corners[1] + i * L;
-        NL.push_back(node);
-    }
-
+    
     return NL;
 }
 
@@ -213,41 +222,49 @@ std::vector<Point> FreeAllPoints(std::vector<Point> PL) {
 }
 
 // Helper function: AssignGlobalDOF
-std::pair<std::vector<Point>, int> AssignGlobalDOF(std::vector<Point> PL, int& DOCs_out) {
+std::pair<std::vector<Point>, int> AssignGlobalDOF(std::vector<Point> PL) {    
+    int NoPs = PL.size();
+    int PD = 1;
     int DOFs = 0;
     int DOCs = 0;
-
-    for (auto& point : PL) {
-        if (point.BCflg == 1) {
-            DOFs++;
-            point.DOF = DOFs;
-            point.DOC = 0;
-        } else {
-            DOCs++;
-            point.DOC = DOCs;
-            point.DOF = 0;
+    
+    for (int i = 0; i < NoPs; i++) {
+        double BCflg = PL[i].BCflg;
+        
+        int DOF, DOC = 0;
+        
+        for (int p = 0; p < PD; p++) {
+            if (BCflg == 1) {
+                DOFs = DOFs + 1;
+                DOF = DOFs;
+            }
+            else
+            {
+                DOCs += 1;
+                DOC = DOCs;
+            }
         }
+        
+        PL[i].DOF = DOF;
+        PL[i].DOC = DOC;
     }
-
-    DOCs_out = DOCs;
+    
     return std::make_pair(PL, DOFs);
 }
 
 // 9th function: [ PL , DOFs ] = AssignBCs( Corners , PL , FF );
-std::pair<std::vector<Point>, int> AssignBCs(const std::vector<double>& Corners, std::vector<Point> PL, const double& d) {
+std::pair<std::vector<Point>, int> AssignBCs(const std::vector<double>& Corners, std::vector<Point> PL, const double& FF) {
     int NoPs = PL.size();
-    int PD = PL[0].PD;
-    double FF = 1.0 + d;
     double A = Corners[0]; // bottom left
     double B = Corners[1]; // bottom right
-    int dummy_DOCs = 0;
-    PL = FreeAllPoints(PL);
 
+    PL = FreeAllPoints(PL);
+    
     double tol = 1e-6;
-    int idx = 0;
+    
     for (int i = 0; i < NoPs; i++) {
         double X = PL[i].X;
-
+        
         if ((X < 0.0)) {
             int BCflg = 0;
             double BCval = 0.0;
@@ -260,20 +277,20 @@ std::pair<std::vector<Point>, int> AssignBCs(const std::vector<double>& Corners,
         {
             int BCflg = 0;
             double BCval = (FF * X) - X;
-
+                        
             PL[i].BCflg = BCflg;
             PL[i].BCval = BCval;
             PL[i].Flag = "Right Patch";
-            idx++;
         }
-        else if ((X > 0.0 || X < 1.0))
+        else
         {
             //PL[i].BCflg = BCflg;
             PL[i].BCval = 0.0;
             PL[i].Flag = "Point";
         }
     }
-    auto result = AssignGlobalDOF(PL, dummy_DOCs);
+    
+    auto result = AssignGlobalDOF(PL);
     return result;
 }
 
@@ -305,7 +322,7 @@ void calculate_rk(std::vector<Point>& PL, double C1, double delta, double nn)
             double xiI = PL[i].neighborsx[j] - PL[i].x;
             double LL = std::abs(XiI);
 
-            if (LL > 1e-8) {
+            if (LL > 0.0) {
                 hyperdual xiI_HD(xiI, 1.0, 1.0, 0.0);
                 hyperdual ll = fabs(xiI_HD);
 
@@ -321,6 +338,7 @@ void calculate_rk(std::vector<Point>& PL, double C1, double delta, double nn)
                     double K_factor = 0.0;
                     if (PL[i].neighbors[j] == neighborsE[b]) K_factor += 1.0;
                     if (PL[i].Nr == neighborsE[b]) K_factor -= 1.0;
+
                     PL[i].stiffness[b] += psi.eps1eps2() * JI * K_factor;
                 }
             }
@@ -331,8 +349,7 @@ void calculate_rk(std::vector<Point>& PL, double C1, double delta, double nn)
 
 
 // Assemble residual or stiffness matrix
-void assembly(const std::vector<Point>& point_list, int DOFs, int DOCs, Eigen::VectorXd& R, Eigen::SparseMatrix<double>& K
-    , Eigen::SparseMatrix<double>& Kuu, Eigen::SparseMatrix<double>& Kpu, Eigen::SparseMatrix<double>& Kpp, const std::string& flag)
+void assembly(const std::vector<Point>& point_list, int DOFs, Eigen::VectorXd& R, Eigen::SparseMatrix<double>& K, const std::string& flag)
 {
     if (flag == "residual") {
         // Reset residual vector
@@ -344,7 +361,8 @@ void assembly(const std::vector<Point>& point_list, int DOFs, int DOCs, Eigen::V
             double BCflg = point.BCflg;
             int DOF = point.DOF;
             if (BCflg == 1) {
-                R(DOF - 1) += R_P;
+                R(DOF - 1) += R_P; // Adjust for 1-based indexing
+                //std::cout << "[Residual] Added residual " << R_P << " at DOF " << DOF << " (Global Point ID: " << point.Nr << ")\n";
             }
         }
 
@@ -356,69 +374,40 @@ void assembly(const std::vector<Point>& point_list, int DOFs, int DOCs, Eigen::V
         K.setZero();
         std::vector<Eigen::Triplet<double>> triplets;
 
+        // Assemble stiffness
         for (const auto& point : point_list) {
-            std::vector<int> neighborsE = point.neighbors;
-            neighborsE.push_back(point.Nr);
+            double BCflg_p = point.BCflg;
+            int DOF_p = point.DOF;
 
-            for (size_t q = 0; q < neighborsE.size(); ++q) {
-                int nbr_idx = neighborsE[q];
-                double Kval = point.stiffness[q];
+            if (BCflg_p == 1) {
+                // Create extended neighbor list including the point itself
+                std::vector<int> neighborsE = point.neighbors;
+                neighborsE.push_back(point.Nr);
 
-                // Use actual point index (i.e., row = point.Nr)
-                triplets.emplace_back(point.Nr, nbr_idx, Kval);
+                for (size_t q = 0; q < neighborsE.size(); q++) {
+                    int nbr_idx = neighborsE[q];
+                    double BCflg_q = point_list[nbr_idx].BCflg;
+                    int DOF_q = point_list[nbr_idx].DOF;
+
+                    if (BCflg_q == 1) {
+                        double Kval = point.stiffness[q];
+                        triplets.emplace_back(DOF_p - 1, DOF_q - 1, Kval);
+                        //std::cout << "[Stiffness] K(" << DOF_p << "," << DOF_q << ") = " << Kval << " from Point " << point.Nr << " to Point " << nbr_idx << "\n";
+                    }
+                }
             }
         }
 
-        int N = point_list.size();
-        K.resize(N, N);
+        K.resize(DOFs, DOFs);
         K.setFromTriplets(triplets.begin(), triplets.end());
 
         Eigen::MatrixXd A = Eigen::MatrixXd(K);
 
         //std::cout << "\nStiffness matrix size: " << A.rows() << " x " << K.cols() << std::endl;
         //std::cout << "\nStiffness Matrix K:\n" << A << std::endl;
-        // === Now extract Kuu, Kpu, Kpp ===
-        std::vector<int> unknown_indices;     // free DOFs
-        std::vector<int> prescribed_indices;  // constrained DOFs
-
-        for (int i = 0; i < point_list.size(); ++i) {
-            if (point_list[i].BCflg == 1)
-                unknown_indices.push_back(i);         // global matrix row = i
-            else if (point_list[i].BCflg == 0)
-                prescribed_indices.push_back(i);      // global matrix row = i
-        }
-
-        int Nu = unknown_indices.size();
-        int Np = prescribed_indices.size();
-
-        // Prepare triplets for Kuu, Kpu, Kpp
-        std::vector<Eigen::Triplet<double>> Kuu_trips, Kpu_trips, Kpp_trips;
-
-        for (int i = 0; i < Nu; ++i)
-            for (int j = 0; j < Nu; ++j)
-                Kuu_trips.emplace_back(i, j, A(unknown_indices[i], unknown_indices[j]));
-
-        for (int i = 0; i < Np; ++i)
-            for (int j = 0; j < Nu; ++j)
-                Kpu_trips.emplace_back(i, j, A(prescribed_indices[i], unknown_indices[j]));
-
-        for (int i = 0; i < Np; ++i)
-            for (int j = 0; j < Np; ++j)
-                Kpp_trips.emplace_back(i, j, A(prescribed_indices[i], prescribed_indices[j]));
-
-        // Resize and assign triplets
-        Kuu.resize(Nu, Nu);
-        Kpu.resize(Np, Nu);
-        Kpp.resize(Np, Np);
-
-        Kuu.setFromTriplets(Kuu_trips.begin(), Kuu_trips.end());
-        Kpu.setFromTriplets(Kpu_trips.begin(), Kpu_trips.end());
-        Kpp.setFromTriplets(Kpp_trips.begin(), Kpp_trips.end());
-
-        //std::cout << "\nStiffness Matrix Kpu:\n" << Kpu << std::endl;
-        //std::cout << "\nStiffness Matrix Kpp:\n" << Kpp << std::endl;
     }
 }
+
 // Update points based on displacement or prescribed values
 void update_points(std::vector<Point>& PL, double LF, Eigen::VectorXd& dx, const std::string& Update_flag)
 {

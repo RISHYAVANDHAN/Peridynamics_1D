@@ -51,10 +51,15 @@ void write_vtk_1d(const std::vector<Point>& point_list, const std::string& filen
 int main() {
     std::cout << "Starting 1D Peridynamics simulation!" << std::endl;
 
+    /////////////////////////////////////////////////////////////////////////////////////////////////
+    ///////////////////////////////// SIMULATION SETUP///////////////////////////////////////////////
+    /////////////////////////////////////////////////////////////////////////////////////////////////
+
     // Parameters
+    int PD = 1;
     double domain_size = 1.0;
-    double Delta = 0.301;
-    double L = 0.1;
+    double Delta = 0.301;                       // this piece of shit became Delta from delta
+    double L = 0.1;                             // renamed it as L, it was Delta previously
     double d = 0.1;
     int number_of_patches = 2;
     int number_of_right_patches = 2;
@@ -62,12 +67,16 @@ int main() {
     int DOFs = 0;
     int DOCs = 0;
     double nn = 2.0;
+    double Force = 10.0;
+    std::string DEFflag = "EXT";
+    std::string Prescribed_Flag = "Displacement";
+
     // 1. Compute corners
     std::vector<double> Corners = Compute_Corners(domain_size);
 
     // 2. Create mesh and patch
     std::vector<double> NLtmp = Mesh(Corners, L);
-    std::vector<double> NLext = Patch(Corners, L, number_of_patches, number_of_right_patches);
+    std::vector<double> NLext = Patch(Corners, L, Delta);
 
     std::vector<double> NL;
     NL.insert(NL.end(), NLtmp.begin(), NLtmp.end());
@@ -92,43 +101,27 @@ int main() {
 
     // 7. Compute FF - done in Points.cpp, no need to do here
     // 8. Assign boundary conditions and DOFs
-    auto bc_result = AssignBCs(Corners, PL, d);
+    double FF = Compute_FF(PD, d, DEFflag);
+    auto bc_result = AssignBCs(Corners, PL, FF);
     PL = bc_result.first;
-    auto result = AssignGlobalDOF(PL, DOCs);
+    auto result = AssignGlobalDOF(PL);
     PL = result.first;
     DOFs = result.second;
-    std::cout << "number of DOCs                  : " << DOCs << std::endl;
     std::cout << "number of DOFs                  : " << DOFs << std::endl;
     std::cout << "======================================================" << std::endl;
 
+    /////////////////////////////////////////////////////////////////////////////////////////////////
+    ///////////////////////////////// NEWTON - RAPHSON SOLVER ///////////////////////////////////////
+    /////////////////////////////////////////////////////////////////////////////////////////////////
+    
 
-    // Debugging the points and their neighbours
-    for (const auto& i : PL) {
-        std::cout << "Nr: " << i.Nr << std::endl << "X: [";
-        std::cout << i.X << ", 0, 0";
-        std::cout << "]" << std::endl << "x: [" << i.x << ", 0, 0 ]" << std::endl;
-        std::cout << "Volume: " << i.Vol << std::endl;
-        std::cout << "BC: " << i.BCflg <<" & Flag: "<<i.Flag<<std::endl;
-        std::cout << "Force Mag: " << i.ForceMag <<" & Flag: "<<i.ForceFlg<<std::endl;
-        std::cout << "Neighbours of " << i.Nr << " are: [";
-        for (int j = 0; j < i.neighbors.size(); j++)
-        {
-            std::cout << "{ ";
-            std::cout << i.neighbors[j] << " ";
-            std::cout << "} ";
-        }
-        std::cout << "]";
-        std::cout << "\nNumber of neighbours for point " << i.Nr << ": " << i.NI << std::endl;
-        std::cout << std::endl;
-    }
-    //verify_displacement_scaling(PL, DOFs, DOCs, C1, Delta, nn, ForceMag);
-    //exit(0); // to test independently of Newton
     // Newton-Raphson setup
     int steps = 100;
     double load_step = (1.0 / steps);
     double tol = 1e-12;
     int max_try = 50;
     double LF = 0.0;
+    double F_rec_patch, F_rec_rightpatch = 0; // this is the reaction force on the right patch after getting displaced.
 
     std::cout << "======================================================" << std::endl;
     std::cout << "Simulation Parameters:" << std::endl;
@@ -140,15 +133,10 @@ int main() {
     // Initialize Eigen objects
     Eigen::VectorXd R = Eigen::VectorXd::Zero(DOFs);
     Eigen::SparseMatrix<double> K;
-    Eigen::SparseMatrix<double> Kuu;  // Add thisAdd commentMore actions
-    Eigen::SparseMatrix<double> Kpu;
-    Eigen::SparseMatrix<double> Kpp;
-    Eigen::VectorXd f_reaction = Eigen::VectorXd::Zero(DOCs);
     Eigen::VectorXd dx = Eigen::VectorXd::Zero(DOFs);
 
     // Load stepping loop
-    while (LF <= 1.0 + 1e-8)
-    {
+    while (LF <= 1.0 + 1e-8) {
         std::cout << "\nLoad Factor: " << LF << std::endl;
 
         // Apply prescribed displacements
@@ -159,32 +147,29 @@ int main() {
         double normnull = 0.0;
 
         dx.setZero();
-        f_reaction.setZero();
+
         // Newton-Raphson iteration
         while (isNotAccurate && error_counter <= max_try) {
             calculate_rk(PL, C1, Delta, nn);
 
-            assembly(PL, DOFs, DOCs,R, K, Kuu, Kpu, Kpp,"residual");
+            assembly(PL, DOFs, R, K, "residual");
+
             double residual_norm = R.norm();
             if (error_counter == 1) {
                 normnull = std::max(residual_norm, 1e-10);
                 std::cout << "Initial Residual Norm: " << residual_norm << std::endl;
             } else {
                 double rel_norm = residual_norm / normnull;
-                std::cout << "Iter " << error_counter << ": Residual Norm = " << residual_norm
-                          << ", Relative = " << rel_norm << std::endl;
-
+                std::cout << "Iter " << error_counter << ": Residual Norm = " << residual_norm << ", Relative = " << rel_norm << std::endl;
                 if (rel_norm < tol || residual_norm < tol) {
                     isNotAccurate = false;
-                    std::cout << "Converged after " << error_counter << " iterations." << std::endl;
                 }
             }
 
-            assembly(PL, DOFs, DOCs, R, K, Kuu,  Kpu,Kpp,"stiffness");
+            assembly(PL, DOFs, R, K, "stiffness");
 
             Eigen::ConjugateGradient<Eigen::SparseMatrix<double>> solver;
-            //Eigen::SparseMatrix<double> Kuu_sparse = Kuu.sparseView();  // Convert to sparse
-            solver.compute(Kuu);
+            solver.compute(K);
             dx = solver.solve(-R);
 
             if(solver.info() != Eigen::Success)
@@ -193,43 +178,63 @@ int main() {
             }
 
             update_points(PL, LF, dx, "Displacement");
-
-            Eigen::VectorXd u_free(DOFs);
-            Eigen::VectorXd u_prescribed = Eigen::VectorXd::Zero(DOCs);
-            for (const auto& p : PL) {
-                if (p.BCflg == 1 && p.DOF > 0) {
-                    u_free(p.DOF - 1) = p.x - p.X;  // total displacement
+            for(int i = 0; i < PL.size(); i++)
+            {
+                if((PL[i].DOC != 0) && (PL[i].Flag == "Right Patch"))
+                {
+                    F_rec_rightpatch -= PL[i].residual;
                 }
-                if (p.BCflg == 0 && p.DOC > 0) {
-                    u_prescribed(p.DOC - 1) = p.BCval * LF;
+                if((PL[i].DOC != 0) && (PL[i].Flag == "Patch"))
+                {
+                    F_rec_patch += PL[i].residual;
                 }
             }
-
-            //std::cout << "\n Kpu matrix: " << dx << std::endl;
-            //std::cout << "\n Kpu matrix: " << Kpu << std::endl;
-            //std::cout << "\n free matrix: " << u_free << std::endl;
-
-            //std::cout << "\n prescribed matrix: " << u_prescribed << std::endl;
-            //std::cout << "\nprescribed matrix size: " << u_prescribed.rows() << " x " << u_prescribed.cols() << std::endl;
-            // Calculate reactions before updating positions
-            f_reaction = -(Kpu * u_free + Kpp * u_prescribed);
-
+            std::cout<<"Reaction Force on the RIGHT PATCH at Load Factor    : "<< LF << " is : "<< F_rec_rightpatch <<std::endl;
+            std::cout<<"Reaction Force on the PATCH at Load Factor          : "<< LF << " is : "<< F_rec_patch <<std::endl;
+            std::cout<<"Total Reaction force = Rightpatch - Patch" << (F_rec_rightpatch - F_rec_patch)<< std::endl<< std::endl;
+ 
+            if(isNotAccurate == false) std::cout << "Converged after " << error_counter << " iterations." << std::endl<< std::endl;
             error_counter++;
-            
         }
 
-        //std::cin.get();
+
         LF += load_step;
-        int idx = 0;
-        for (const auto& p : PL) {
-            std::cout << "Point " << p.Nr << ": x = " << p.x << ", displacement = " << (p.x - p.X) << std::endl;
-            if (p.BCflg == 0 && p.DOC > 0){
-                std::cout << "Point " << p.Nr << " (X = " << p.X << "): "
-                     << "Reaction = " << f_reaction(idx) << std::endl;
-                idx++;
-            }
 
+        // Output current state
+        for (const auto& p : PL) {
+            //std::cout << "Point " << p.Nr << ": x = " << p.x << ", displacement = " << (p.x - p.X) << std::endl;
         }
+        
     }
+
+    
     return 0;
 }
+
+
+
+
+
+
+
+
+
+/*
+    // Debugging the points and their neighbours
+    for (const auto& i : PL) {
+        std::cout << "Nr: " << i.Nr << std::endl << "X: [";
+        std::cout << i.X << ", 0, 0";
+        std::cout << "]" << std::endl << "x: [" << i.x << ", 0, 0 ]" << std::endl;
+        std::cout << "Volume: " << i.Vol << std::endl;
+        std::cout << "BC: " << i.BCflg <<" & Flag: "<<i.Flag<<std::endl;
+        std::cout << "Neighbours of " << i.Nr << " are: [";
+        for (int j = 0; j < i.neighbors.size(); j++)
+        {
+            std::cout << "{ ";
+            std::cout << i.neighbors[j] << " ";
+            std::cout << "} ";
+        }
+        std::cout << "]";
+        std::cout << "\nNumber of neighbours for point " << i.Nr << ": " << i.NI << std::endl;
+        std::cout << std::endl;
+    }*/
