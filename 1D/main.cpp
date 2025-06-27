@@ -1,3 +1,5 @@
+// Main.cpp
+
 #include <iostream>
 #include <vector>
 #include <cmath>
@@ -10,43 +12,6 @@
 #include <algorithm>
 #include "Points.h"
 
-
-void write_vtk_1d(const std::vector<Point>& point_list, const std::string& filename) {
-    std::ofstream vtk_file(filename);
-    if (!vtk_file.is_open()) {
-        std::cerr << "Failed to open VTK file for writing: " << filename << std::endl;
-        return;
-    }
-
-    vtk_file << "# vtk DataFile Version 4.2\n";
-    vtk_file << "1D Peridynamics Output\n";
-    vtk_file << "ASCII\n";
-    vtk_file << "DATASET POLYDATA\n";
-    vtk_file << "POINTS " << point_list.size() << " float\n";
-
-    for (const auto& point : point_list) {
-        vtk_file << std::fixed << std::setprecision(6);
-        vtk_file << point.x << " 0.0 0.0\n";
-    }
-
-    // Add lines connecting adjacent points to emphasize horizontal layout
-    vtk_file << "LINES " << (point_list.size()-1) << " " << (point_list.size()-1)*3 << "\n";
-    for (size_t i = 0; i < point_list.size()-1; i++) {
-        vtk_file << "2 " << i << " " << (i+1) << "\n";
-    }
-
-    vtk_file << "POINT_DATA " << point_list.size() << "\n";
-
-    vtk_file << "SCALARS BC int 1\n";
-    vtk_file << "LOOKUP_TABLE default\n";
-    for (const auto& point : point_list) {
-        vtk_file << point.BCflg << "\n";
-    }
-
-    vtk_file.close();
-    std::cout << "VTK file written to " << filename << std::endl;
-}
-
 // --- Main Function ---
 int main() {
     std::cout << "Starting 1D Peridynamics simulation!" << std::endl;
@@ -58,28 +23,26 @@ int main() {
     // Parameters
     int PD = 1;
     double domain_size = 1.0;
-    double Delta = 0.301;                           // this piece of shit became Delta from delta
-    double L = 0.1;                                 // renamed it as L, it was Delta previously
-    double d = 0.1;                                 // Magnitude of deformation, for displacement precription
-    double F_ext = 0.1;                             // Prescribing External force
-    double C1 = 0.5;                                // Material Constant
-
-    int number_of_patches = 2;
-    int number_of_right_patches = 2;
-
+    double Delta = 0.301;                               // this piece of shit became Delta from delta
+    double L = 0.1;                                     // renamed it as L, it was Delta previously
+    double d = 0.1 * domain_size;                      // just so that if i increase the domain size, i shouldnt forget to change this accordingly, so i just added it as a factor here
+    int number_of_patches = 3;
+    int number_of_right_patches = 1;
+    double C1 = 0.5;
     int DOFs = 0;
     int DOCs = 0;
     double nn = 2.0;
-    double Force = 10.0;
+    double F_prescribed = 1.0;                          // the reaction forces are in that range, so its 1e-2, maybe for more number of points or more deformation, we can increase it.
     std::string DEFflag = "EXT";
-    std::string Prescribed_Flag = "Displacement";   // This flag is to see if we´re prescribing "Force" or "Displacement".  
+    //std::string Prescribed_Flag = "Displacement";              // Prescribing Force or Displacement
+    std::string Prescribed_Flag = "Force"; 
 
     // 1. Compute corners
     std::vector<double> Corners = Compute_Corners(domain_size);
 
     // 2. Create mesh and patch
     std::vector<double> NLtmp = Mesh(Corners, L);
-    std::vector<double> NLext = Patch(Corners, L, Delta);
+    std::vector<double> NLext = Patch(Corners, L, Delta, number_of_patches, number_of_right_patches);
 
     std::vector<double> NL;
     NL.insert(NL.end(), NLtmp.begin(), NLtmp.end());
@@ -99,28 +62,29 @@ int main() {
 
     // 6. Output info
     std::cout << "======================================================" << std::endl;
-    std::cout << "Number of nodes                 : " << NL.size() << std::endl;
-    std::cout << "Number of points                : " << PL.size() << std::endl;
+    std::cout << "number of nodes                 : " << NL.size() << std::endl;
+    std::cout << "number of points                : " << PL.size() << std::endl;
 
     // 7. Compute FF - done in Points.cpp, no need to do here
     // 8. Assign boundary conditions and DOFs
     double FF = Compute_FF(PD, d, DEFflag);
-    auto bc_result = AssignBCs(Corners, PL, FF, Prescribed_Flag);
+    auto bc_result = AssignBCs(Corners, PL, FF, Prescribed_Flag, domain_size);
     PL = bc_result.first;
     auto result = AssignGlobalDOF(PL);
     PL = result.first;
     DOFs = result.second;
-    std::cout << "Number of DOFs                  : " << DOFs << std::endl;
+    std::cout << "number of DOFs                  : " << DOFs << std::endl;
     std::cout << "======================================================" << std::endl;
 
     /////////////////////////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////// NEWTON - RAPHSON SOLVER ///////////////////////////////////////
     /////////////////////////////////////////////////////////////////////////////////////////////////
     
+
     // Newton-Raphson setup
     int steps = 10;
     double load_step = (1.0 / steps);
-    double tol = 1e-12;
+    double tol = 1e-10;
     int max_try = 10;
     double LF = 0.0;
     double F_rec_patch, F_rec_rightpatch = 0; // this is the reaction force on the right patch after getting displaced.
@@ -141,19 +105,17 @@ int main() {
     while (LF <= 1.0 + 1e-8) {
         std::cout << "\nLoad Factor: " << LF << std::endl;
 
-        // Apply prescribed displacements
-        update_points(PL, LF, dx, Prescribed_Flag,F_ext); // So, now its either force or displacement.
+        // Apply prescribed displacements or force, thats why the prescribed flag is parsed as an argument
+        update_points(PL, LF, dx, Prescribed_Flag, F_prescribed); 
 
         int error_counter = 1;
         bool isNotAccurate = true;
         double normnull = 0.0;
-        double F_rec_patch, F_rec_rightpatch = 0; // this is the reaction force on the right patch after getting displaced.
 
         dx.setZero();
-
+        calculate_rk(PL, C1, Delta, nn);
         // Newton-Raphson iteration
         while (isNotAccurate && error_counter <= max_try) {
-            calculate_rk(PL, C1, Delta, nn);
 
             assembly(PL, DOFs, R, K, "residual");
 
@@ -163,7 +125,7 @@ int main() {
                 std::cout << "Initial Residual Norm: " << residual_norm << std::endl;
             } else {
                 double rel_norm = residual_norm / normnull;
-                std::cout << "Iter " << error_counter << ":\t Residual Norm = " << residual_norm << ",\t Relative = " << rel_norm << std::endl;
+                std::cout << "Iter " << error_counter << ": Residual Norm = " << residual_norm << ", Relative = " << rel_norm << std::endl;
                 if (rel_norm < tol || residual_norm < tol) {
                     isNotAccurate = false;
                 }
@@ -171,7 +133,7 @@ int main() {
 
             assembly(PL, DOFs, R, K, "stiffness");
 
-            Eigen::ConjugateGradient<Eigen::SparseMatrix<double>> solver;
+            Eigen::SparseLU<Eigen::SparseMatrix<double>> solver;
             solver.compute(K);
             dx = solver.solve(-R);
 
@@ -180,23 +142,26 @@ int main() {
                 std::cout << "Linear Solver failed to converge in this iteration!" << std::endl;
             }
 
-            update_points(PL, LF, dx, "Calculated", F_ext);
+            update_points(PL, LF, dx, "Calculated", F_prescribed);
+
             for(int i = 0; i < PL.size(); i++)
             {
-                if((PL[i].DOC != 0) && (PL[i].Flag == "Right Patch"))
+                if((PL[i].Flag == "Right Patch"))
                 {
-                    F_rec_rightpatch -= PL[i].residual;
+                    F_rec_rightpatch -= (PL[i].residual);
                 }
-                if((PL[i].DOC != 0) && (PL[i].Flag == "Patch"))
+                if((PL[i].Flag == "Patch"))
                 {
                     F_rec_patch += PL[i].residual;
                 }
             }
-            std::cout<<"Reaction Force on the RIGHT PATCH at Load Factor    : "<< LF << " is : "<< F_rec_rightpatch <<std::endl;
-            std::cout<<"Reaction Force on the PATCH at Load Factor          : "<< LF << " is : "<< F_rec_patch <<std::endl;
-            std::cout<<"Total Reaction force = Patch - Right Patch = " << (F_rec_patch - F_rec_rightpatch)<< std::endl<< std::endl;
+            //std::cout<<"Reaction Force on the RIGHT PATCH at Load Factor    : "<< LF << " is : "<< F_rec_rightpatch <<std::endl;
+            //std::cout<<"Reaction Force on the PATCH at Load Factor          : "<< LF << " is : "<< F_rec_patch <<std::endl;
+            //std::cout<<"Total Reaction force = Rightpatch - Patch = " << (F_rec_rightpatch - F_rec_patch)<< std::endl<< std::endl;
  
             if(isNotAccurate == false) std::cout << "Converged after " << error_counter << " iterations." << std::endl<< std::endl;
+            
+            calculate_rk(PL, C1, Delta, nn);        
             error_counter++;
         }
 
@@ -205,7 +170,7 @@ int main() {
 
         // Output current state
         for (const auto& p : PL) {
-            //std::cout << "Point " << p.Nr << ": x = " << p.x << ", displacement = " << (p.x - p.X) << std::endl;
+            std::cout << "Point " << p.Nr << ": x = " << p.x << ",\t displacement = " << (p.x - p.X) << std::endl;
         }
         
     }
