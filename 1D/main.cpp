@@ -11,9 +11,10 @@
 #include <string>
 #include <algorithm>
 #include "Points.h"
+#include "cli.h"
 
 // --- Main Function ---
-int main() {
+int main(int argc, char* argv[]) {
     std::cout << "Starting 1D Peridynamics simulation!" << std::endl;
 
     /////////////////////////////////////////////////////////////////////////////////////////////////
@@ -21,22 +22,23 @@ int main() {
     /////////////////////////////////////////////////////////////////////////////////////////////////
 
     // Parameters
+    CLIOptions opts = parseArguments(argc, argv);
     int PD = 1;
-    double domain_size = 1.0;
-    double Delta = 0.301;                               // this piece of shit became Delta from delta
-    double L = 0.1;                                     // renamed it as L, it was Delta previously
-    double d = 0.1 * domain_size;                      // just so that if i increase the domain size, i shouldnt forget to change this accordingly, so i just added it as a factor here
-    int number_of_patches = 3;
-    int number_of_right_patches = 1;
-    double C1 = 0.5;
-    int DOFs = 0;
-    int DOCs = 0;
-    double nn = 2.0;
-    double F_prescribed = 1.0;                          // the reaction forces are in that range, so its 1e-2, maybe for more number of points or more deformation, we can increase it.
-    std::string DEFflag = "EXT";
-    //std::string Prescribed_Flag = "Displacement";              // Prescribing Force or Displacement
-    std::string Prescribed_Flag = "Force"; 
-
+    double domain_size = opts.domain_size;
+    double Delta = opts.Delta;
+    double L = opts.L;
+    double d = opts.d * domain_size;
+    int number_of_patches = opts.number_of_patches;
+    int number_of_right_patches = opts.number_of_right_patches;
+    double C1 = opts.C1;
+    double nn = opts.nn;
+    double F_prescribed = opts.F_prescribed;
+    std::string Prescribed_Flag = opts.Prescribed_Flag;
+    int steps = opts.steps;
+    double load_step = 1.0 / steps;
+    double tol = opts.tol;
+    std::string DEFflag = opts.DEFflag;
+    int DOFs;
     // 1. Compute corners
     std::vector<double> Corners = Compute_Corners(domain_size);
 
@@ -82,7 +84,7 @@ int main() {
     
 
     // Newton-Raphson setup
-    int steps = 10;
+    int steps = 10000;
     double load_step = (1.0 / steps);
     double tol = 1e-10;
     int max_try = 10;
@@ -170,7 +172,7 @@ int main() {
 
         // Output current state
         for (const auto& p : PL) {
-            std::cout << "Point " << p.Nr << ": x = " << p.x << ",\t displacement = " << (p.x - p.X) << std::endl;
+            //std::cout << "Point " << p.Nr << ": x = " << p.x << ",\t displacement = " << (p.x - p.X) << std::endl;
         }
         
     }
