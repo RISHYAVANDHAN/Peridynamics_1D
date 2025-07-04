@@ -34,9 +34,6 @@ int main(int argc, char* argv[]) {
     double nn = opts.nn;
     double F_prescribed = opts.F_prescribed;
     std::string Prescribed_Flag = opts.Prescribed_Flag;
-    int steps = opts.steps;
-    double load_step = 1.0 / steps;
-    double tol = opts.tol;
     std::string DEFflag = opts.DEFflag;
     int DOFs;
     // 1. Compute corners
@@ -84,9 +81,9 @@ int main(int argc, char* argv[]) {
     
 
     // Newton-Raphson setup
-    int steps = 10000;
-    double load_step = (1.0 / steps);
-    double tol = 1e-10;
+    int steps = opts.steps;
+    double load_step = 1.0 / steps;
+    double tol = opts.tol;
     int max_try = 10;
     double LF = 0.0;
     double F_rec_patch, F_rec_rightpatch = 0; // this is the reaction force on the right patch after getting displaced.
