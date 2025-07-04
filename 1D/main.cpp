@@ -12,10 +12,14 @@
 #include <algorithm>
 #include "Points.h"
 #include "cli.h"
+#include <chrono>
 
-// --- Main Function ---
+// --- Main Function --- //
 int main(int argc, char* argv[]) {
+    auto total_start = std::chrono::high_resolution_clock::now();
+    std::ofstream logfile("log files/simulation.log");
     std::cout << "Starting 1D Peridynamics simulation!" << std::endl;
+    logfile << "Starting 1D Peridynamics simulation!" << std::endl;
 
     /////////////////////////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////// SIMULATION SETUP///////////////////////////////////////////////
@@ -63,6 +67,9 @@ int main(int argc, char* argv[]) {
     std::cout << "======================================================" << std::endl;
     std::cout << "number of nodes                 : " << NL.size() << std::endl;
     std::cout << "number of points                : " << PL.size() << std::endl;
+    logfile << "======================================================" << std::endl;
+    logfile << "number of nodes                 : " << NL.size() << std::endl;
+    logfile << "number of points                : " << PL.size() << std::endl;
 
     // 7. Compute FF - done in Points.cpp, no need to do here
     // 8. Assign boundary conditions and DOFs
@@ -74,6 +81,8 @@ int main(int argc, char* argv[]) {
     DOFs = result.second;
     std::cout << "number of DOFs                  : " << DOFs << std::endl;
     std::cout << "======================================================" << std::endl;
+    logfile << "number of DOFs                  : " << DOFs << std::endl;
+    logfile << "======================================================" << std::endl;
 
     /////////////////////////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////// NEWTON - RAPHSON SOLVER ///////////////////////////////////////
@@ -84,7 +93,7 @@ int main(int argc, char* argv[]) {
     int steps = opts.steps;
     double load_step = 1.0 / steps;
     double tol = opts.tol;
-    int max_try = 10;
+    int max_try = 100;
     double LF = 0.0;
     double F_rec_patch, F_rec_rightpatch = 0; // this is the reaction force on the right patch after getting displaced.
 
@@ -94,15 +103,25 @@ int main(int argc, char* argv[]) {
     std::cout << "Steps: " << steps << " | Load Step: " << load_step<< " | Tolerance: " << tol << std::endl;
     std::cout << "Material constant C1: " << C1 << std::endl;
     std::cout << "======================================================" << std::endl;
+    logfile << "======================================================" << std::endl;
+    logfile << "Simulation Parameters:" << std::endl;
+    logfile << "Domain Size: " << domain_size << " | Lattice Length / Delta: " << L<< " | Horizon: " << Delta << std::endl;
+    logfile << "Steps: " << steps << " | Load Step: " << load_step<< " | Tolerance: " << tol << std::endl;
+    logfile << "Material constant C1: " << C1 << std::endl;
+    logfile << "======================================================" << std::endl;
 
     // Initialize Eigen objects
     Eigen::VectorXd R = Eigen::VectorXd::Zero(DOFs);
     Eigen::SparseMatrix<double> K;
     Eigen::VectorXd dx = Eigen::VectorXd::Zero(DOFs);
 
+    // --- Start simulation timer --- //
+    auto sim_start = std::chrono::high_resolution_clock::now();
+
     // Load stepping loop
     while (LF <= 1.0 + 1e-8) {
         std::cout << "\nLoad Factor: " << LF << std::endl;
+        logfile << "\nLoad Factor: " << LF << std::endl;
 
         // Apply prescribed displacements or force, thats why the prescribed flag is parsed as an argument
         update_points(PL, LF, dx, Prescribed_Flag, F_prescribed); 
@@ -121,11 +140,13 @@ int main(int argc, char* argv[]) {
             double residual_norm = R.norm();
             if (error_counter == 1) {
                 normnull = std::max(residual_norm, 1e-10);
-                std::cout << "Initial Residual Norm: " << residual_norm << std::endl;
+                //std::cout << "Initial Residual Norm: " << residual_norm << std::endl;
+                logfile << "Initial Residual Norm: " << residual_norm << std::endl;
             } else {
                 double rel_norm = residual_norm / normnull;
-                std::cout << "Iter " << error_counter << ": Residual Norm = " << residual_norm << ", Relative = " << rel_norm << std::endl;
-                if (rel_norm < tol || residual_norm < tol) {
+                ///std::cout << "Iter " << error_counter << ": Residual Norm = " << residual_norm << ", Relative = " << rel_norm << std::endl;
+                logfile << "Iter " << error_counter << ": Residual Norm = " << residual_norm << ", Relative = " << rel_norm << std::endl;
+                if ((rel_norm - tol) < 1e-12 || (residual_norm - tol) < 1e-12) {
                     isNotAccurate = false;
                 }
             }
@@ -139,6 +160,7 @@ int main(int argc, char* argv[]) {
             if(solver.info() != Eigen::Success)
             {
                 std::cout << "Linear Solver failed to converge in this iteration!" << std::endl;
+                logfile << "Linear Solver failed to converge in this iteration!" << std::endl;
             }
 
             update_points(PL, LF, dx, "Calculated", F_prescribed);
@@ -158,7 +180,10 @@ int main(int argc, char* argv[]) {
             //std::cout<<"Reaction Force on the PATCH at Load Factor          : "<< LF << " is : "<< F_rec_patch <<std::endl;
             //std::cout<<"Total Reaction force = Rightpatch - Patch = " << (F_rec_rightpatch - F_rec_patch)<< std::endl<< std::endl;
  
-            if(isNotAccurate == false) std::cout << "Converged after " << error_counter << " iterations." << std::endl<< std::endl;
+            if(isNotAccurate == false) {
+                std::cout << "Converged after " << error_counter << " iterations." << std::endl<< std::endl;
+                logfile << "Converged after " << error_counter << " iterations." << std::endl << std::endl;
+            }
             
             calculate_rk(PL, C1, Delta, nn);        
             error_counter++;
@@ -174,7 +199,20 @@ int main(int argc, char* argv[]) {
         
     }
 
-    
+    // --- End simulation timer --- //
+    auto sim_end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> sim_duration = sim_end - sim_start;
+
+    // --- End total timer --- //
+    auto total_end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> total_duration = total_end - total_start;
+
+    std::cout << "\nSimulation time: " << sim_duration.count() << " seconds" << std::endl;
+    std::cout << "Total program time: " << total_duration.count() << " seconds" << std::endl;
+    logfile << "\nSimulation time: " << sim_duration.count() << " seconds" << std::endl;
+    logfile << "Total program time: " << total_duration.count() << " seconds" << std::endl;
+    logfile.close();
+
     return 0;
 }
 
