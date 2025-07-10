@@ -15,4 +15,5 @@ add_executable(Peridynamics_1D
     1D/Points.h
     1D/cli.h
     1D/cli.cpp
+    1D/logger.h
 )

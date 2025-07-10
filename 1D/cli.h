@@ -17,6 +17,7 @@ struct CLIOptions {
     int steps = 10000;
     double tol = 1e-10;
     std::string DEFflag = "EXT";
+    std::string output_dir;
 };
 
 CLIOptions parseArguments(int argc, char* argv[]);

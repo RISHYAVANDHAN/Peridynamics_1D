@@ -26,6 +26,7 @@ CLIOptions parseArguments(int argc, char* argv[]) {
         else if (arg == "--steps") options.steps = std::atoi(next());
         else if (arg == "--tol") options.tol = std::atof(next());
         else if (arg == "--DEFflag") options.DEFflag = next();
+        else if (arg == "--output_dir") options.output_dir = next();
         else {
             std::cerr << "Unknown option: " << arg << "\n";
             std::exit(1);

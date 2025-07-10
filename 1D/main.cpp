@@ -10,16 +10,17 @@
 #include <Eigen/Sparse>
 #include <string>
 #include <algorithm>
+#include <chrono>
+
 #include "Points.h"
 #include "cli.h"
-#include <chrono>
+#include "logger.h"
+
 
 // --- Main Function --- //
 int main(int argc, char* argv[]) {
     auto total_start = std::chrono::high_resolution_clock::now();
-    std::ofstream logfile("log files/simulation.log");
     std::cout << "Starting 1D Peridynamics simulation!" << std::endl;
-    logfile << "Starting 1D Peridynamics simulation!" << std::endl;
 
     /////////////////////////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////// SIMULATION SETUP///////////////////////////////////////////////
@@ -39,7 +40,11 @@ int main(int argc, char* argv[]) {
     double F_prescribed = opts.F_prescribed;
     std::string Prescribed_Flag = opts.Prescribed_Flag;
     std::string DEFflag = opts.DEFflag;
+    std::string file_name = opts.output_dir;
     int DOFs;
+
+
+
     // 1. Compute corners
     std::vector<double> Corners = Compute_Corners(domain_size);
 
@@ -67,9 +72,6 @@ int main(int argc, char* argv[]) {
     std::cout << "======================================================" << std::endl;
     std::cout << "number of nodes                 : " << NL.size() << std::endl;
     std::cout << "number of points                : " << PL.size() << std::endl;
-    logfile << "======================================================" << std::endl;
-    logfile << "number of nodes                 : " << NL.size() << std::endl;
-    logfile << "number of points                : " << PL.size() << std::endl;
 
     // 7. Compute FF - done in Points.cpp, no need to do here
     // 8. Assign boundary conditions and DOFs
@@ -81,11 +83,17 @@ int main(int argc, char* argv[]) {
     DOFs = result.second;
     std::cout << "number of DOFs                  : " << DOFs << std::endl;
     std::cout << "======================================================" << std::endl;
-    logfile << "number of DOFs                  : " << DOFs << std::endl;
-    logfile << "======================================================" << std::endl;
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////    LOGGING THE INFO     ////////////////////////////////////
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+
+    std::cout << "[LOG] Writing to: log_files/" << file_name << ".log" << std::endl;
+    Logger logger(file_name);
+    logger.writeHeader(file_name);
 
     /////////////////////////////////////////////////////////////////////////////////////////////////
-    ///////////////////////////////// NEWTON - RAPHSON SOLVER ///////////////////////////////////////
+    ////////////////////////////////// NEWTON - RAPHSON SOLVER //////////////////////////////////////
     /////////////////////////////////////////////////////////////////////////////////////////////////
     
 
@@ -97,18 +105,14 @@ int main(int argc, char* argv[]) {
     double LF = 0.0;
     double F_rec_patch, F_rec_rightpatch = 0; // this is the reaction force on the right patch after getting displaced.
 
+    logger.writeParameters(domain_size, L, Delta, PL.size(), steps, C1, nn, Prescribed_Flag, F_prescribed);
+
     std::cout << "======================================================" << std::endl;
     std::cout << "Simulation Parameters:" << std::endl;
     std::cout << "Domain Size: " << domain_size << " | Lattice Length / Delta: " << L<< " | Horizon: " << Delta << std::endl;
     std::cout << "Steps: " << steps << " | Load Step: " << load_step<< " | Tolerance: " << tol << std::endl;
     std::cout << "Material constant C1: " << C1 << std::endl;
     std::cout << "======================================================" << std::endl;
-    logfile << "======================================================" << std::endl;
-    logfile << "Simulation Parameters:" << std::endl;
-    logfile << "Domain Size: " << domain_size << " | Lattice Length / Delta: " << L<< " | Horizon: " << Delta << std::endl;
-    logfile << "Steps: " << steps << " | Load Step: " << load_step<< " | Tolerance: " << tol << std::endl;
-    logfile << "Material constant C1: " << C1 << std::endl;
-    logfile << "======================================================" << std::endl;
 
     // Initialize Eigen objects
     Eigen::VectorXd R = Eigen::VectorXd::Zero(DOFs);
@@ -121,8 +125,8 @@ int main(int argc, char* argv[]) {
     // Load stepping loop
     while (LF <= 1.0 + 1e-8) {
         std::cout << "\nLoad Factor: " << LF << std::endl;
-        logfile << "\nLoad Factor: " << LF << std::endl;
-
+        logger.writeLoadFactor(LF);
+        
         // Apply prescribed displacements or force, thats why the prescribed flag is parsed as an argument
         update_points(PL, LF, dx, Prescribed_Flag, F_prescribed); 
 
@@ -131,26 +135,25 @@ int main(int argc, char* argv[]) {
         double normnull = 0.0;
 
         dx.setZero();
-        calculate_rk(PL, C1, Delta, nn);
         // Newton-Raphson iteration
         while (isNotAccurate && error_counter <= max_try) {
-
+            
+            calculate_rk(PL, C1, Delta, nn);
             assembly(PL, DOFs, R, K, "residual");
 
             double residual_norm = R.norm();
+            double rel_norm;
             if (error_counter == 1) {
                 normnull = std::max(residual_norm, 1e-10);
-                //std::cout << "Initial Residual Norm: " << residual_norm << std::endl;
-                logfile << "Initial Residual Norm: " << residual_norm << std::endl;
+                std::cout << "Initial Residual Norm = " << residual_norm << std::endl;
             } else {
-                double rel_norm = residual_norm / normnull;
-                ///std::cout << "Iter " << error_counter << ": Residual Norm = " << residual_norm << ", Relative = " << rel_norm << std::endl;
-                logfile << "Iter " << error_counter << ": Residual Norm = " << residual_norm << ", Relative = " << rel_norm << std::endl;
+                rel_norm = residual_norm / normnull;
+                std::cout << "Iter " << error_counter << ": Residual Norm = " << residual_norm << ", Relative = " << rel_norm << std::endl;
                 if ((rel_norm - tol) < 1e-12 || (residual_norm - tol) < 1e-12) {
                     isNotAccurate = false;
                 }
             }
-
+            logger.writeConvergence(error_counter, residual_norm, rel_norm);
             assembly(PL, DOFs, R, K, "stiffness");
 
             Eigen::SparseLU<Eigen::SparseMatrix<double>> solver;
@@ -160,7 +163,6 @@ int main(int argc, char* argv[]) {
             if(solver.info() != Eigen::Success)
             {
                 std::cout << "Linear Solver failed to converge in this iteration!" << std::endl;
-                logfile << "Linear Solver failed to converge in this iteration!" << std::endl;
             }
 
             update_points(PL, LF, dx, "Calculated", F_prescribed);
@@ -169,27 +171,26 @@ int main(int argc, char* argv[]) {
             {
                 if((PL[i].Flag == "Right Patch"))
                 {
-                    F_rec_rightpatch -= (PL[i].residual);
+                    F_rec_rightpatch = (PL[i].residual);
                 }
                 if((PL[i].Flag == "Patch"))
                 {
-                    F_rec_patch += PL[i].residual;
+                    F_rec_patch = PL[i].residual;
                 }
             }
-            //std::cout<<"Reaction Force on the RIGHT PATCH at Load Factor    : "<< LF << " is : "<< F_rec_rightpatch <<std::endl;
-            //std::cout<<"Reaction Force on the PATCH at Load Factor          : "<< LF << " is : "<< F_rec_patch <<std::endl;
-            //std::cout<<"Total Reaction force = Rightpatch - Patch = " << (F_rec_rightpatch - F_rec_patch)<< std::endl<< std::endl;
+            std::cout<<"Reaction Force on the RIGHT PATCH at Load Factor    : "<< LF << " is : "<< F_rec_rightpatch <<std::endl;
+            std::cout<<"Reaction Force on the PATCH at Load Factor          : "<< LF << " is : "<< F_rec_patch <<std::endl;
+            std::cout<<"Total Reaction force = Rightpatch - Patch = " << (F_rec_rightpatch - F_rec_patch)<< std::endl<< std::endl;
+            logger.writeReactoinForce(LF, F_rec_rightpatch, F_rec_patch);
  
             if(isNotAccurate == false) {
                 std::cout << "Converged after " << error_counter << " iterations." << std::endl<< std::endl;
-                logfile << "Converged after " << error_counter << " iterations." << std::endl << std::endl;
             }
             
-            calculate_rk(PL, C1, Delta, nn);        
             error_counter++;
         }
 
-
+        logger.writeConverged(error_counter);
         LF += load_step;
 
         // Output current state
@@ -209,9 +210,9 @@ int main(int argc, char* argv[]) {
 
     std::cout << "\nSimulation time: " << sim_duration.count() << " seconds" << std::endl;
     std::cout << "Total program time: " << total_duration.count() << " seconds" << std::endl;
-    logfile << "\nSimulation time: " << sim_duration.count() << " seconds" << std::endl;
-    logfile << "Total program time: " << total_duration.count() << " seconds" << std::endl;
-    logfile.close();
+    logger.writeTiming(sim_duration.count(), total_duration.count());
+    logger.close();
+
 
     return 0;
 }
