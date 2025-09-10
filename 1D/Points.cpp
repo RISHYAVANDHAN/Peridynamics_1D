@@ -323,34 +323,37 @@ void calculate_rk(std::vector<Point>& PL, double C1, double delta, double nn)
         neighborsEX.push_back(PL[i].X);
 
         const int NNgbrE = neighborsE.size();
-        PL[i].stiffness.clear();
-        PL[i].stiffness.resize(NNgbrE, 0.0);
+        PL[i].stiffness = Eigen::VectorXd::Zero(NNgbrE);
 
         for (size_t j = 0; j < PL[i].NI; j++) {
             double XiI = PL[i].neighborsX[j] - PL[i].X;
             double xiI = PL[i].neighborsx[j] - PL[i].x;
             double LL = std::abs(XiI);
 
-            if (LL > 0.0) {
-                hyperdual xiI_HD(xiI, 1.0, 1.0, 0.0);
-                hyperdual ll = xiI_HD;
+            // Skip bonds with negligible initial length
+            if (LL < 1e-12) {
+                continue;
+            }
 
-                // Lambda power-law stretch: s = (1/nn) * [ (l/LL)^nn - 1 ]
-                hyperdual s = (1.0 / nn) * (pow(ll / LL, nn) - 1.0);
+            // Compute current length as absolute value (distance), add small constant to avoid division by zero
+            hyperdual xiI_HD(xiI, 1.0, 1.0, 0.0);
+            hyperdual l = sqrt(xiI_HD * xiI_HD + 1e-12); // Always positive, physically correct
 
-                hyperdual psi = 0.5 * C1 * LL * s * s;
+            // Stretch calculation using current length
+            hyperdual s = (1.0 / nn) * (pow(l / LL, nn) - 1.0);
 
-                PL[i].psi += psi.real();
-                PL[i].residual += psi.eps1() * JI;
-                //if(PL[i].Flag == "Right Patch") PL[i].residual -= PL[i].F_ext;
+            hyperdual psi = 0.5 * C1 * LL * s * s;
 
-                for (int b = 0; b < NNgbrE; b++) {
-                    double K_factor = 0.0;
-                    if (PL[i].neighbors[j] == neighborsE[b]) K_factor += 1.0;
-                    if (PL[i].Nr == neighborsE[b]) K_factor -= 1.0;
+            PL[i].psi += psi.real();
+            PL[i].residual += psi.eps1() * JI;
+            //if(PL[i].Flag == "Right Patch") PL[i].residual -= PL[i].F_ext;
 
-                    PL[i].stiffness[b] += psi.eps1eps2() * JI * K_factor;
-                }
+            for (int b = 0; b < NNgbrE; b++) {
+                double K_factor = 0.0;
+                if (PL[i].neighbors[j] == neighborsE[b]) K_factor += 1.0;
+                if (PL[i].Nr == neighborsE[b]) K_factor -= 1.0;
+
+                PL[i].stiffness[b] += psi.eps1eps2() * JI * K_factor;
             }
         }
     }
@@ -367,7 +370,7 @@ void assembly(const std::vector<Point>& point_list, int DOFs, Eigen::VectorXd& R
 
         // Assemble residual
         for (const auto& point : point_list) {
-            double R_P = point.residual - point.F_ext; // i´m subtracting the external force here, shouldnt be a problem anyways
+            double R_P = point.residual + point.F_ext; 
             double BCflg = point.BCflg;
             int DOF = point.DOF;
             if (BCflg == 1) {
@@ -419,7 +422,7 @@ void assembly(const std::vector<Point>& point_list, int DOFs, Eigen::VectorXd& R
 }
 
 // Update points based on displacement or prescribed values
-void update_points(std::vector<Point>& PL, double LF, Eigen::VectorXd& dx, const std::string& Update_flag, double F_prescribed)
+void update_points(std::vector<Point>& PL, double LF, Eigen::VectorXd& dx, const std::string& Update_flag, double F_prescribed, int number_of_right_patches)
 {
     int NoPs = PL.size();
     if (Update_flag == "Displacement") {
@@ -432,7 +435,7 @@ void update_points(std::vector<Point>& PL, double LF, Eigen::VectorXd& dx, const
     else if (Update_flag == "Force") {
         for (int i = 0; i < NoPs; i++) {
             if (PL[i].Flag == "Right Patch") {
-                PL[i].F_ext = -LF * F_prescribed;
+                PL[i].F_ext = LF * F_prescribed / number_of_right_patches;
             }
         }
     }

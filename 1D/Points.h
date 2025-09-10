@@ -11,6 +11,8 @@
 #include <algorithm>
 #include <string>
 #include <iostream>
+#include <Eigen/Dense>
+#include <Eigen/Sparse>
 
 // Point class definition to match Matlab structure
 class Point {
@@ -37,7 +39,7 @@ public:
     std::string Flag;
     double psi;
     double residual;
-    std::vector<double> stiffness;
+    Eigen::VectorXd stiffness;
     double F_ext;
 
     
@@ -71,7 +73,7 @@ std::pair<std::vector<Point>, int> AssignGlobalDOF(std::vector<Point> PL) ;
 std::pair<std::vector<Point>, int> AssignBCs(const std::vector<double>& Corners, std::vector<Point> PL, const double& FF, const std::string& Prescribed_Flag, double domain_size) ;
 void calculate_rk(std::vector<Point>& point_list, double C1, double delta, double nn);
 void assembly(const std::vector<Point>& point_list, int DOFs, Eigen::VectorXd& R, Eigen::SparseMatrix<double>& K, const std::string& flag);
-void update_points(std::vector<Point>& point_list, double LF, Eigen::VectorXd& dx, const std::string& Update_flag, double F_prescribed);
+void update_points(std::vector<Point>& point_list, double LF, Eigen::VectorXd& dx, const std::string& Update_flag, double F_prescribed, int number_of_right_patches);
 
 
 #endif //POINTS_H

@@ -91,6 +91,13 @@ int main(int argc, char* argv[]) {
     std::cout << "[LOG] Writing to: log_files/" << file_name << ".log" << std::endl;
     Logger logger(file_name);
     logger.writeHeader(file_name);
+    std::string timing_csv = "csv_files/timing_results.csv";
+    bool file_exists = std::filesystem::exists(timing_csv);
+    std::ofstream csv_file(timing_csv, std::ios::app);
+    if (!file_exists) {
+        // Write header only if file doesn't exist
+        csv_file << "spacing,number_of_points,simulation_time_sec,total_time_sec,implementation\n";
+    }
 
     /////////////////////////////////////////////////////////////////////////////////////////////////
     ////////////////////////////////// NEWTON - RAPHSON SOLVER //////////////////////////////////////
@@ -105,7 +112,7 @@ int main(int argc, char* argv[]) {
     double LF = 0.0;
     double F_rec_patch, F_rec_rightpatch = 0; // this is the reaction force on the right patch after getting displaced.
 
-    logger.writeParameters(domain_size, L, Delta, PL.size(), steps, C1, nn, Prescribed_Flag, F_prescribed);
+    logger.writeParameters(domain_size, L, Delta, PL.size(), steps, C1, nn, Prescribed_Flag, F_prescribed, d, number_of_patches, number_of_right_patches);
 
     std::cout << "======================================================" << std::endl;
     std::cout << "Simulation Parameters:" << std::endl;
@@ -128,7 +135,7 @@ int main(int argc, char* argv[]) {
         logger.writeLoadFactor(LF);
         
         // Apply prescribed displacements or force, thats why the prescribed flag is parsed as an argument
-        update_points(PL, LF, dx, Prescribed_Flag, F_prescribed); 
+        update_points(PL, LF, dx, Prescribed_Flag, F_prescribed, number_of_right_patches); 
 
         int error_counter = 1;
         bool isNotAccurate = true;
@@ -156,50 +163,93 @@ int main(int argc, char* argv[]) {
             logger.writeConvergence(error_counter, residual_norm, rel_norm);
             assembly(PL, DOFs, R, K, "stiffness");
 
+            // main.cpp - in Newton-Raphson iteration
+            /*
+            if(nn == 1.0) {
+                Eigen::MatrixXd A = Eigen::MatrixXd(K);
+                Eigen::FullPivLU<Eigen::MatrixXd> solver;
+                solver.compute(A);
+                if(!solver.isInvertible()) {
+                    std::cout << "Linear solver failed to compute!" << std::endl;
+                    break;
+                }
+                dx = solver.solve(-R);
+            } else {
+                Eigen::SparseLU<Eigen::SparseMatrix<double>> solver;
+                solver.compute(K);
+                if(solver.info() != Eigen::Success) {
+                    std::cout << "Nonlinear solver failed to compute!" << std::endl;
+                    break;
+                }
+                dx = solver.solve(-R);
+                if(solver.info() != Eigen::Success) {
+                    std::cout << "Solver failed to converge in this iteration!" << std::endl;
+                }
+            }
+            */
             Eigen::SparseLU<Eigen::SparseMatrix<double>> solver;
             solver.compute(K);
-            dx = solver.solve(-R);
+            if(solver.info() != Eigen::Success) {
+                std::cout << "Nonlinear solver failed to compute!" << std::endl;
+                break;
+            }
+            dx = solver.solve(-R);  
+                  
+            update_points(PL, LF, dx, "Calculated", F_prescribed, number_of_right_patches);
 
-            if(solver.info() != Eigen::Success)
-            {
-                std::cout << "Linear Solver failed to converge in this iteration!" << std::endl;
+            F_rec_patch = 0.0;
+            F_rec_rightpatch = 0.0;
+
+            for (int i = 0; i < PL.size(); i++) {
+                if (PL[i].Flag == "Right Patch" && Prescribed_Flag == "Force")
+                    F_rec_rightpatch += PL[i].F_ext;
+                if (PL[i].Flag == "Right Patch" && Prescribed_Flag == "Displacement")
+                    F_rec_rightpatch += PL[i].residual;
+                if ((PL[i].Flag == "Patch"))
+                    F_rec_patch += PL[i].residual;
             }
 
-            update_points(PL, LF, dx, "Calculated", F_prescribed);
+            if (!isNotAccurate && LF >= 1.0 - 1e-12) {
+                const int H = number_of_patches;
 
-            for(int i = 0; i < PL.size(); i++)
-            {
-                if((PL[i].Flag == "Right Patch"))
-                {
-                    F_rec_rightpatch = (PL[i].residual);
+                std::vector<double> left_residuals;
+                for (int i = 0; i < PL.size(); ++i)
+                    if (PL[i].Flag == "Patch")
+                        left_residuals.push_back(PL[i].residual);
+
+                logger.writePatchForces(H, nn, left_residuals, F_rec_rightpatch);
+
+                // append also to CSV
+                bool file_exists = std::filesystem::exists("csv_files/force_by_position.csv");
+                std::ofstream ofs("csv_files/force_by_position.csv", std::ios::app);
+                if (!file_exists) {
+                    ofs << "H,NN,X,Diff\n";
                 }
-                if((PL[i].Flag == "Patch"))
-                {
-                    F_rec_patch = PL[i].residual;
+                for (int k = 0; k < (int)left_residuals.size(); ++k) {
+                    int Xpos = -(k+1);
+                    ofs << H << "," << nn << "," << Xpos << "," << (F_rec_rightpatch - left_residuals[k]) << "\n";
                 }
             }
-            std::cout<<"Reaction Force on the RIGHT PATCH at Load Factor    : "<< LF << " is : "<< F_rec_rightpatch <<std::endl;
-            std::cout<<"Reaction Force on the PATCH at Load Factor          : "<< LF << " is : "<< F_rec_patch <<std::endl;
-            std::cout<<"Total Reaction force = Rightpatch - Patch = " << (F_rec_rightpatch - F_rec_patch)<< std::endl<< std::endl;
-            logger.writeReactoinForce(LF, F_rec_rightpatch, F_rec_patch);
- 
+
             if(isNotAccurate == false) {
                 std::cout << "Converged after " << error_counter << " iterations." << std::endl<< std::endl;
+                logger.writeConverged(error_counter);
             }
             
             error_counter++;
-        }
-
-        logger.writeConverged(error_counter);
-        LF += load_step;
-
-        // Output current state
-        for (const auto& p : PL) {
-            //std::cout << "Point " << p.Nr << ": x = " << p.x << ",\t displacement = " << (p.x - p.X) << std::endl;
-        }
-        
+        }        
+        LF += load_step;   
     }
-
+    std::cout<<"Applied / Reaction Force on the RIGHT PATCH is : "<< F_rec_rightpatch  <<std::endl;
+    std::cout<<"Reaction Force on the PATCH is : "<< F_rec_patch <<std::endl;
+    std::cout<<"Total Reaction force = Rightpatch - Patch = " << (F_rec_rightpatch - F_rec_patch)<< std::endl<< std::endl;
+    logger.writeReactoinForce(LF, F_rec_rightpatch, F_rec_patch);
+    
+    // Output final state
+    /*for (const auto& p : PL) {
+        std::cout << "Point " << p.Nr << ": x = " << p.x << ",\t displacement = " << (p.x - p.X) << std::endl;
+    }*/
+    
     // --- End simulation timer --- //
     auto sim_end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> sim_duration = sim_end - sim_start;
@@ -211,36 +261,7 @@ int main(int argc, char* argv[]) {
     std::cout << "\nSimulation time: " << sim_duration.count() << " seconds" << std::endl;
     std::cout << "Total program time: " << total_duration.count() << " seconds" << std::endl;
     logger.writeTiming(sim_duration.count(), total_duration.count());
+
     logger.close();
-
-
     return 0;
 }
-
-
-
-
-
-
-
-
-
-/*
-    // Debugging the points and their neighbours
-    for (const auto& i : PL) {
-        std::cout << "Nr: " << i.Nr << std::endl << "X: [";
-        std::cout << i.X << ", 0, 0";
-        std::cout << "]" << std::endl << "x: [" << i.x << ", 0, 0 ]" << std::endl;
-        std::cout << "Volume: " << i.Vol << std::endl;
-        std::cout << "BC: " << i.BCflg <<" & Flag: "<<i.Flag<<std::endl;
-        std::cout << "Neighbours of " << i.Nr << " are: [";
-        for (int j = 0; j < i.neighbors.size(); j++)
-        {
-            std::cout << "{ ";
-            std::cout << i.neighbors[j] << " ";
-            std::cout << "} ";
-        }
-        std::cout << "]";
-        std::cout << "\nNumber of neighbours for point " << i.Nr << ": " << i.NI << std::endl;
-        std::cout << std::endl;
-    }*/
