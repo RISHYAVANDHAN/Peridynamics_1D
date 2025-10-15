@@ -175,12 +175,9 @@ chmod +x peridynamics_1d.sh
 
 The simulation will run with default parameters. If needed, you can modify the code or configuration files for different parameters, boundary conditions, or other settings in the `peridynamics_1d.sh` accordingly.
 
-## Additional Resources
+## Reference
 
-For more details on Peridynamics and the theory behind this code, please refer to relevant scientific literature on the subject:
-
-- Silling, S. A. (2000). "Reformulation of elasticity theory for discontinuities and long-range forces." *Journal of the Mechanics and Physics of Solids*, 48(1), 175-209.
-- Madenci, E., & Oterkus, E. (2014). *Peridynamic Theory and Its Applications*. Springer.
+Javili, A., Firooz, S., McBride, A. T., & Steinmann, P. (2020). The computational framework for continuum-kinematics-inspired peridynamics. Computational Mechanics, 66(4), 795-824.
 
 ## License
 
