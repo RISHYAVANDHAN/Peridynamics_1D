@@ -70,7 +70,7 @@ public:
         logfile.flush(); // Ensure immediate write
     }
 
-    void writeReactoinForce(double LF, double F_rec_right_patch, double F_rec_patch){
+    void writeReactoinForce(double LF, double F_rec_right_patch, double F_rec_patch, int H, double nn){
         logfile<<"Reaction Force on the RIGHT PATCH at Load Factor    : "<< LF << " is : "<< F_rec_right_patch <<std::endl;
         logfile<<"Reaction Force on the PATCH at Load Factor          : "<< LF << " is : "<< F_rec_patch <<std::endl;
         logfile<<"Total Reaction force = Rightpatch - Patch = " << (F_rec_right_patch - F_rec_patch)<< std::endl<< std::endl;
@@ -78,6 +78,11 @@ public:
         double Force_Diff_error = (std::abs(Force_Diff) / (F_rec_right_patch)) * 100;
         logfile << "Force Difference = Right − Left total = " << Force_Diff << "\n";
         logfile << "Force Difference Error % = " << Force_Diff_error << "\n";
+        std::ofstream error_csv("csv_files/force_error.csv", std::ios::app);
+        if (error_csv.is_open()) {
+            error_csv << H << "," << nn << "," << Force_Diff_error << "\n";
+        }
+        error_csv.close();
     }
 
     void writePatchForces(int H, double nn, const std::vector<double>& left_residuals, double right_total) {

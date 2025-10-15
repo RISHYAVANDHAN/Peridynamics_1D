@@ -40,8 +40,7 @@ for N in "${Points[@]}"; do
         else
           rpatches=50
         fi
-        
-
+      
         ./build/Peridynamics_1D \
           --domain $Domain \
           --delta $H \
@@ -53,10 +52,10 @@ for N in "${Points[@]}"; do
           --d $DeformationMagnitude \
           --force $Force \
           --flag $P \
-          --steps 100 \
+          --steps 1000 \
           --tol 1e-10 \
           --DEFflag EXT \
-          --output_dir "Simulation_Force_10N_Domain=100_Horizon=${H}_NN=${n}"
+          --output_dir "Testing_Force_10N_Domain=100_Horizon=${H}_NN=${n}"
 
       done
     done

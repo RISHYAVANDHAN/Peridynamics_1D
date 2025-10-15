@@ -1,3 +1,7 @@
 .vscode/
 build/
 eigen/
+log_files/
+plots_force_error/
+csv_files/
+plots_force_by_position/
