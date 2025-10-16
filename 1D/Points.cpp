@@ -455,8 +455,8 @@ void calculate_rk(std::vector<Point>& PL, double C1, double delta, double nn)
 
             // Stretch calculation s = (|l - L| / L)^nn * (1/nn)
             // Using abs(l.real() - LL) for standard stretch calculation:
-            double stretch = std::abs(l.real() - LL) / LL; 
-            hyperdual s = (1.0 / nn) * (pow((stretch), nn));
+            //double stretch = std::abs(l.real() - LL) / LL; 
+            hyperdual s = (1.0 / nn) * (pow((l/LL) - 1, nn));
 
             // Strain energy density: psi = 0.5 * C1 * L * s^2
             hyperdual psi = 0.5 * C1 * LL * s * s; 
