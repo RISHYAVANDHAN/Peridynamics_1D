@@ -447,16 +447,16 @@ void calculate_rk(std::vector<Point>& PL, double C1, double delta, double nn)
             }
 
             // Hyperdual setup for automatic differentiation: d = x - X
-            double epsilon = 1e-6; // Small constant for stability (under sqrt)
+            //double epsilon = 1e-6; // Small constant for stability (under sqrt)
             hyperdual xiI_HD(xiI, 1.0, 1.0, 0.0); // Value: xiI, eps1: 1.0, eps2: 1.0, eps1eps2: 0.0
             
             // Current length: l = sqrt(xiI^2 + epsilon)
-            hyperdual l = sqrt(xiI_HD * xiI_HD + epsilon);
+            hyperdual l = sqrt(xiI_HD * xiI_HD);
 
             // Stretch calculation s = (|l - L| / L)^nn * (1/nn)
             // Using abs(l.real() - LL) for standard stretch calculation:
             //double stretch = std::abs(l.real() - LL) / LL; 
-            hyperdual s = (1.0 / nn) * (pow((l/LL) - 1, nn));
+            hyperdual s = (1.0 / nn) * (pow((l/LL), nn) - 1);
 
             // Strain energy density: psi = 0.5 * C1 * L * s^2
             hyperdual psi = 0.5 * C1 * LL * s * s; 
